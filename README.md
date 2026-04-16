@@ -407,7 +407,7 @@ Pre-built images from GitHub Container Registry:
 docker run -p 7777:7777 ghcr.io/graph-memory/browser-mcp:latest
 ```
 
-Browser profiles are persisted in a Docker volume (`browser-profiles`).
+The container runs Chromium as a dedicated non-root `browser` user. Browser profiles are persisted in a Docker volume (`browser`) at `/home/browser/.browser-mcp`. The image uses Playwright's bundled Chromium (`BROWSER_MCP_CHANNEL=chromium` is set automatically).
 
 Note: `browser_open_visible` does not work in Docker (no display server). Use it only in local/desktop setups.
 
