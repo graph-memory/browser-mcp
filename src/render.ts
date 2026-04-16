@@ -1,6 +1,7 @@
 import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
 import TurndownService from "turndown";
+import { config } from "./config.js";
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -9,10 +10,10 @@ const turndown = new TurndownService({
 });
 turndown.remove(["script", "style", "noscript"]);
 
-export const DEFAULT_MAX_CHARS = Number(process.env.BROWSER_MCP_MAX_CHARS) || 50_000;
+export const DEFAULT_MAX_CHARS = config.maxChars;
 
 /** Cap raw HTML fed into JSDOM/Readability to avoid OOM on huge pages. */
-const MAX_HTML_BYTES = Number(process.env.BROWSER_MCP_MAX_HTML_BYTES) || 10_000_000;
+const MAX_HTML_BYTES = config.maxHtmlBytes;
 
 export function htmlToMarkdown(
   html: string,

@@ -4,55 +4,56 @@ import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { nanoid } from "nanoid";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { config } from "./config.js";
 
-const DEFAULT_PROFILE_DIR = join(homedir(), ".browser-mcp", "profile");
-const DEFAULT_TAB_TTL_MS = (Number(process.env.BROWSER_MCP_TAB_TTL_SEC) || 600) * 1000;
-const SWEEP_INTERVAL_MS = 60_000;
-const SETTLE_IDLE_MS = Number(process.env.BROWSER_MCP_SETTLE_MS) || 500;
-const SETTLE_TIMEOUT_MS = Number(process.env.BROWSER_MCP_SETTLE_TIMEOUT_MS) || 3_000;
+const BASE_PROFILE_DIR = config.profileDir || join(homedir(), ".browser-mcp", "profiles");
+const DEFAULT_PROFILE = "default";
 
-const STEALTH = process.env.BROWSER_MCP_STEALTH !== "0";
-const CHANNEL = process.env.BROWSER_MCP_CHANNEL ?? "chrome";
-const DEFAULT_HEADLESS = process.env.BROWSER_MCP_HEADLESS !== "0";
-const PROXY_SERVER = process.env.BROWSER_MCP_PROXY ?? "";
-const PROXY_BYPASS = process.env.BROWSER_MCP_PROXY_BYPASS ?? "";
-const PROXY_USERNAME = process.env.BROWSER_MCP_PROXY_USERNAME ?? "";
-const PROXY_PASSWORD = process.env.BROWSER_MCP_PROXY_PASSWORD ?? "";
+if (config.stealth) extraChromium.use(StealthPlugin());
+const chromium = config.stealth ? extraChromium : vanillaChromium;
 
-if (STEALTH) extraChromium.use(StealthPlugin());
-const chromium = STEALTH ? extraChromium : vanillaChromium;
+const PROFILE_NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
+export function validateProfileName(name: string): string {
+  if (!PROFILE_NAME_RE.test(name)) {
+    throw new Error(
+      `Invalid profile name "${name}". Must match ${PROFILE_NAME_RE} (1-64 chars, alphanumeric, dash, underscore).`,
+    );
+  }
+  return name;
+}
 
 export type TabInfo = { tab_id: string; title: string; url: string; status?: number };
 
-class BrowserManager {
+export class BrowserManager {
   private context: BrowserContext | null = null;
   private tabs = new Map<string, Page>();
   private pageToId = new Map<Page, string>();
   private lastUsed = new Map<string, number>();
   private currentTabId: string | null = null;
-  private profileDir: string;
   private headless: boolean;
-  private tabTtlMs: number;
   private sweepTimer: NodeJS.Timeout | null = null;
+  readonly profileName: string;
+  readonly profileDir: string;
 
-  constructor(opts: { profileDir?: string; headless?: boolean; tabTtlMs?: number } = {}) {
-    this.profileDir = opts.profileDir ?? DEFAULT_PROFILE_DIR;
-    this.headless = opts.headless ?? DEFAULT_HEADLESS;
-    this.tabTtlMs = opts.tabTtlMs ?? DEFAULT_TAB_TTL_MS;
+  constructor(profileName?: string) {
+    this.profileName = profileName ? validateProfileName(profileName) : DEFAULT_PROFILE;
+    this.profileDir = join(BASE_PROFILE_DIR, this.profileName);
+    this.headless = config.headless;
   }
 
   private async ensureContext(): Promise<BrowserContext> {
     if (this.context) return this.context;
     this.context = await chromium.launchPersistentContext(this.profileDir, {
       headless: this.headless,
-      channel: CHANNEL,
+      channel: config.channel,
       viewport: { width: 1280, height: 900 },
-      ...(PROXY_SERVER && {
+      ...(config.proxy && {
         proxy: {
-          server: PROXY_SERVER,
-          ...(PROXY_BYPASS && { bypass: PROXY_BYPASS }),
-          ...(PROXY_USERNAME && { username: PROXY_USERNAME }),
-          ...(PROXY_PASSWORD && { password: PROXY_PASSWORD }),
+          server: config.proxy,
+          ...(config.proxyBypass && { bypass: config.proxyBypass }),
+          ...(config.proxyUsername && { username: config.proxyUsername }),
+          ...(config.proxyPassword && { password: config.proxyPassword }),
         },
       }),
     });
@@ -84,16 +85,17 @@ class BrowserManager {
 
   private startSweeper(): void {
     if (this.sweepTimer) return;
-    this.sweepTimer = setInterval(() => this.sweep(), SWEEP_INTERVAL_MS);
+    this.sweepTimer = setInterval(() => this.sweep(), 60_000);
     this.sweepTimer.unref?.();
   }
 
   private async sweep(): Promise<void> {
     const now = Date.now();
+    const tabTtlMs = config.tabTtlSec * 1000;
     const stale: string[] = [];
     for (const [id, ts] of this.lastUsed) {
       if (id === this.currentTabId) continue;
-      if (now - ts > this.tabTtlMs) stale.push(id);
+      if (now - ts > tabTtlMs) stale.push(id);
     }
     for (const id of stale) {
       const page = this.tabs.get(id);
@@ -157,7 +159,7 @@ class BrowserManager {
       let inflight = 0;
       let settled = false;
       let idleTimer: ReturnType<typeof setTimeout> | null = null;
-      const hardTimer = setTimeout(done, SETTLE_TIMEOUT_MS);
+      const hardTimer = setTimeout(done, config.settleTimeoutMs);
       function done() {
         if (settled) return;
         settled = true;
@@ -170,7 +172,7 @@ class BrowserManager {
       }
       function resetIdle() {
         if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = inflight === 0 ? setTimeout(done, SETTLE_IDLE_MS) : null;
+        idleTimer = inflight === 0 ? setTimeout(done, config.settleMs) : null;
       }
       function onReq() {
         inflight++;
@@ -312,7 +314,7 @@ class BrowserManager {
           const start = Math.max(0, idx - 40);
           const end = Math.min(text.length, idx + q.length + 40);
           results.push({
-            snippet: (start > 0 ? "…" : "") + text.slice(start, end) + (end < text.length ? "…" : ""),
+            snippet: (start > 0 ? "..." : "") + text.slice(start, end) + (end < text.length ? "..." : ""),
             selector: cssPath(el),
             tag: el.tagName.toLowerCase(),
           });
@@ -334,7 +336,7 @@ class BrowserManager {
       this.pageToId.clear();
       this.lastUsed.clear();
       this.currentTabId = null;
-      this.headless = DEFAULT_HEADLESS;
+      this.headless = config.headless;
     });
     const existing = ctx.pages()[0];
     const page = existing ?? (await ctx.newPage());
@@ -364,5 +366,3 @@ class BrowserManager {
     }
   }
 }
-
-export const browser = new BrowserManager();

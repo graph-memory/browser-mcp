@@ -1,6 +1,6 @@
 # browser-mcp
 
-MCP server that gives Claude (or any MCP client) a full browser — open pages, read content, click, type, scroll, take screenshots, and manage tabs. Powered by Playwright with stealth mode and a persistent cookie/localStorage profile.
+MCP server that gives Claude (or any MCP client) a full browser — open pages, read content, click, type, scroll, take screenshots, and manage tabs. Powered by Playwright with stealth mode and persistent cookie/localStorage profiles.
 
 > **Disclaimer:** This tool automates browser interactions and may violate the terms of service or acceptable use policies of websites it accesses. You are solely responsible for how you use it and which sites you interact with. The authors assume no liability for any consequences arising from its use.
 
@@ -25,6 +25,73 @@ Add to your MCP settings:
     }
   }
 }
+```
+
+## Named profiles
+
+Each MCP endpoint URL can include a profile name that isolates cookies, localStorage, and browser state:
+
+```
+http://127.0.0.1:7777/mcp            → "default" profile
+http://127.0.0.1:7777/mcp/test1      → "test1" profile
+http://127.0.0.1:7777/mcp/my-scraper → "my-scraper" profile
+```
+
+Profile names must match `^[a-zA-Z0-9_-]{1,64}$` (letters, digits, dashes, underscores; 1-64 chars).
+
+Profiles are stored at `~/.browser-mcp/profiles/<name>/` (override base dir with `--profile-dir` or `BROWSER_MCP_PROFILE_DIR`).
+
+Multiple MCP sessions on the same profile share one browser instance. When the last session on a profile expires, the browser shuts down automatically.
+
+### Multi-profile Claude Code config
+
+```json
+{
+  "mcpServers": {
+    "browser": {
+      "type": "http",
+      "url": "http://127.0.0.1:7777/mcp"
+    },
+    "browser-test": {
+      "type": "http",
+      "url": "http://127.0.0.1:7777/mcp/test"
+    }
+  }
+}
+```
+
+## CLI options
+
+All settings follow the priority: **CLI flag > environment variable > default**.
+
+```bash
+browser-mcp [options]
+
+Options:
+  -p, --port <number>          HTTP port (default: 7777)
+  -H, --host <address>         Bind address (default: 127.0.0.1)
+  --headless                   Run in headless mode (default)
+  --no-headless                Run in visible mode
+  --stealth                    Enable stealth plugin (default)
+  --no-stealth                 Disable stealth plugin
+  --channel <name>             Chromium channel: chrome, msedge, etc. (default: chrome)
+  --proxy <url>                Proxy server URL
+  --proxy-bypass <domains>     Comma-separated domains to bypass proxy
+  --proxy-username <user>      Proxy auth username
+  --proxy-password <pass>      Proxy auth password
+  --max-chars <number>         Max characters returned by browser_read (default: 50000)
+  --max-html-bytes <number>    Cap raw HTML size before parsing (default: 10000000)
+  --tab-ttl <seconds>          Auto-close inactive tabs after N seconds (default: 600)
+  --settle-ms <ms>             Quiet-window duration for request-counting settle (default: 500)
+  --settle-timeout-ms <ms>     Hard timeout for settle after navigation/click (default: 3000)
+  --session-ttl <seconds>      Session TTL in seconds (default: 1800)
+  --profile-dir <path>         Base directory for browser profiles (default: ~/.browser-mcp/profiles)
+```
+
+Example:
+
+```bash
+npm start -- --port 8080 --no-stealth --session-ttl 3600
 ```
 
 ## Tools
@@ -56,7 +123,7 @@ Find text occurrences on the current page. Returns up to `limit` snippets, each 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `query` | string | yes | — | Substring to search for in the page's visible text (case-insensitive) |
-| `limit` | integer (1–50) | no | `10` | Maximum number of matches to return |
+| `limit` | integer (1-50) | no | `10` | Maximum number of matches to return |
 | `tab_id` | string | no | active tab | Tab to search in |
 
 ### `browser_click`
@@ -136,7 +203,7 @@ Execute a JavaScript expression in the page context and return the JSON-serializ
 
 ### `browser_tabs_list`
 
-List all open tabs with their `tab_id`, title, and URL. The active tab is marked with `→`. No parameters.
+List all open tabs with their `tab_id`, title, and URL. The active tab is marked with `->`. No parameters.
 
 ### `browser_tab_switch`
 
@@ -173,30 +240,38 @@ Take a PNG screenshot of the current tab. Default: viewport (1280x900). `full_pa
 
 ## Environment variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BROWSER_MCP_PORT` | `7777` | HTTP port |
-| `BROWSER_MCP_HOST` | `127.0.0.1` | Bind address |
-| `BROWSER_MCP_STEALTH` | `1` | Enable stealth plugin (`0` to disable) |
-| `BROWSER_MCP_CHANNEL` | `chrome` | Chromium channel (`chrome`, `msedge`, etc.) |
-| `BROWSER_MCP_HEADLESS` | `1` | Run headless (`0` for visible) |
-| `BROWSER_MCP_TAB_TTL_SEC` | `600` | Auto-close inactive tabs after N seconds |
-| `BROWSER_MCP_MAX_CHARS` | `50000` | Max characters returned by `browser_read` |
-| `BROWSER_MCP_PROXY` | — | Proxy server URL (e.g. `http://proxy:8080`, `socks5://proxy:1080`) |
-| `BROWSER_MCP_PROXY_BYPASS` | — | Comma-separated list of domains to bypass proxy (e.g. `localhost,127.0.0.1`) |
-| `BROWSER_MCP_PROXY_USERNAME` | — | Proxy auth username |
-| `BROWSER_MCP_PROXY_PASSWORD` | — | Proxy auth password |
-| `BROWSER_MCP_MAX_HTML_BYTES` | `10000000` | Cap raw HTML size before parsing (protects against OOM) |
-| `BROWSER_MCP_SETTLE_MS` | `500` | Quiet-window duration (ms) for request-counting settle |
-| `BROWSER_MCP_SETTLE_TIMEOUT_MS` | `3000` | Hard timeout (ms) for settle after navigation/click |
+All environment variables can be overridden by CLI flags (CLI takes priority).
+
+| Variable | Default | CLI flag | Description |
+|----------|---------|----------|-------------|
+| `BROWSER_MCP_PORT` | `7777` | `-p, --port` | HTTP port |
+| `BROWSER_MCP_HOST` | `127.0.0.1` | `-H, --host` | Bind address |
+| `BROWSER_MCP_STEALTH` | `1` | `--[no-]stealth` | Enable stealth plugin (`0` to disable) |
+| `BROWSER_MCP_CHANNEL` | `chrome` | `--channel` | Chromium channel (`chrome`, `msedge`, etc.) |
+| `BROWSER_MCP_HEADLESS` | `1` | `--[no-]headless` | Run headless (`0` for visible) |
+| `BROWSER_MCP_TAB_TTL_SEC` | `600` | `--tab-ttl` | Auto-close inactive tabs after N seconds |
+| `BROWSER_MCP_MAX_CHARS` | `50000` | `--max-chars` | Max characters returned by `browser_read` |
+| `BROWSER_MCP_MAX_HTML_BYTES` | `10000000` | `--max-html-bytes` | Cap raw HTML size before parsing (protects against OOM) |
+| `BROWSER_MCP_SETTLE_MS` | `500` | `--settle-ms` | Quiet-window duration (ms) for request-counting settle |
+| `BROWSER_MCP_SETTLE_TIMEOUT_MS` | `3000` | `--settle-timeout-ms` | Hard timeout (ms) for settle after navigation/click |
+| `BROWSER_MCP_SESSION_TTL_SEC` | `1800` | `--session-ttl` | Session TTL in seconds |
+| `BROWSER_MCP_PROFILE_DIR` | `~/.browser-mcp/profiles` | `--profile-dir` | Base directory for browser profiles |
+| `BROWSER_MCP_PROXY` | — | `--proxy` | Proxy server URL (e.g. `http://proxy:8080`, `socks5://proxy:1080`) |
+| `BROWSER_MCP_PROXY_BYPASS` | — | `--proxy-bypass` | Comma-separated list of domains to bypass proxy |
+| `BROWSER_MCP_PROXY_USERNAME` | — | `--proxy-username` | Proxy auth username |
+| `BROWSER_MCP_PROXY_PASSWORD` | — | `--proxy-password` | Proxy auth password |
 
 ## How it works
 
-- Uses Playwright with a **persistent browser profile** at `~/.browser-mcp/profile` — cookies and localStorage survive restarts
+- Uses Playwright with **persistent browser profiles** at `~/.browser-mcp/profiles/<name>/` — cookies and localStorage survive restarts
+- Each URL path (`/mcp/<profile>`) maps to an isolated browser profile; `/mcp` uses the `default` profile
+- Multiple MCP sessions on the same profile share one browser; the browser shuts down when the last session expires
 - **Stealth mode** via `playwright-extra` + `puppeteer-extra-plugin-stealth` to avoid bot detection
 - `browser_read` with `mode=markdown` runs Mozilla Readability to extract the main article, then converts to Markdown via Turndown
 - Inactive tabs are automatically closed after the TTL expires (default 10 min)
+- Sessions expire after inactivity (default 30 min, configurable via `--session-ttl`)
 - `browser_open_visible` shuts down the headless browser and reopens in a visible window for manual interaction (login, CAPTCHA); closing the window returns to headless mode
+- Configuration priority: CLI flags > environment variables > defaults
 
 ## Development
 
