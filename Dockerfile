@@ -10,13 +10,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
+RUN groupadd -r browser && useradd -r -g browser -m -d /home/browser browser
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts
+RUN npm ci --ignore-scripts && chown -R browser:browser /app
+
+USER browser
+
 RUN npx playwright install chromium
 
-COPY dist/ dist/
+COPY --chown=browser:browser dist/ dist/
 
 ENV BROWSER_MCP_HOST=0.0.0.0
 ENV BROWSER_MCP_CHANNEL=chromium

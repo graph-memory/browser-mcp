@@ -6,7 +6,7 @@ services:
     environment:
       - BROWSER_MCP_API_KEY=${BROWSER_MCP_API_KEY:-}
     volumes:
-      - browser-profiles:/root/.browser-mcp/profiles
+      - browser:/home/browser/.browser-mcp
 
 volumes:
-  browser-profiles:
+  browser:
