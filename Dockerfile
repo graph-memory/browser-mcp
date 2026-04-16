@@ -19,6 +19,7 @@ RUN npx playwright install chromium
 COPY dist/ dist/
 
 ENV BROWSER_MCP_HOST=0.0.0.0
+ENV BROWSER_MCP_CHANNEL=chromium
 EXPOSE 7777
 
 ENTRYPOINT ["node", "dist/index.js"]
