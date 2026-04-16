@@ -1,7 +1,5 @@
 node_modules
-src
+dist
 .git
 .github
 *.tsbuildinfo
-*.md
-!README.md

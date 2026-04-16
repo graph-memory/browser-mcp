@@ -1,3 +1,10 @@
+FROM node:24-slim AS build
+
+WORKDIR /app
+COPY package.json package-lock.json tsconfig.json ./
+COPY src/ src/
+RUN npm ci --ignore-scripts && npm run build
+
 FROM node:24-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -21,7 +28,7 @@ USER browser
 
 RUN npx playwright install chromium
 
-COPY --chown=browser:browser dist/ dist/
+COPY --from=build --chown=browser:browser /app/dist/ dist/
 
 ENV BROWSER_MCP_HOST=0.0.0.0
 ENV BROWSER_MCP_CHANNEL=chromium
