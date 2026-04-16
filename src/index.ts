@@ -29,6 +29,10 @@ import {
   reloadHandler,
   findSchema,
   findHandler,
+  waitSchema,
+  waitHandler,
+  evaluateSchema,
+  evaluateHandler,
 } from "./tools/interact.js";
 import {
   openVisibleSchema,
@@ -41,8 +45,16 @@ import { logInfo, logError } from "./log.js";
 const PORT = Number(process.env.BROWSER_MCP_PORT ?? 7777);
 const HOST = process.env.BROWSER_MCP_HOST ?? "127.0.0.1";
 
-function withLog<A, R>(name: string, fn: (args: A) => Promise<R>): (args: A) => Promise<R> {
-  return async (args) => {
+type ToolResult = {
+  isError?: boolean;
+  content: Array<
+    | { type: "text"; text: string }
+    | { type: "image"; data: string; mimeType: string }
+  >;
+};
+
+function withLog<A>(name: string, fn: (args: A) => Promise<ToolResult>) {
+  return async (args: A): Promise<ToolResult> => {
     logInfo(`→ ${name}`, args);
     const t0 = Date.now();
     try {
@@ -51,7 +63,11 @@ function withLog<A, R>(name: string, fn: (args: A) => Promise<R>): (args: A) => 
       return out;
     } catch (e) {
       logError(`${name} (${Date.now() - t0}ms)`, e);
-      throw e;
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        isError: true,
+        content: [{ type: "text" as const, text: `Error in ${name}: ${msg}` }],
+      };
     }
   };
 }
@@ -63,7 +79,7 @@ function buildServer(): McpServer {
     "browser_open",
     {
       description:
-        "Open a URL in a new tab, or navigate an existing tab if tab_id is given. Waits for DOMContentLoaded plus a short network-idle settle. Does NOT return page content — call browser_read afterwards. Returns HTTP status, final URL, title, and tab_id.",
+        "Open a URL in a new tab, or navigate an existing tab if tab_id is given. Waits for DOMContentLoaded plus a short request-idle settle. Does NOT return page content — call browser_read afterwards. Returns HTTP status, final URL, title, and tab_id.",
       inputSchema: openSchema,
     },
     withLog("browser_open", openHandler),
@@ -80,7 +96,7 @@ function buildServer(): McpServer {
   server.registerTool(
     "browser_tabs_list",
     {
-      description: "List all open tabs with their tab_id, title, and URL.",
+      description: "List all open tabs with their tab_id, title, and URL. The active tab is marked with →.",
       inputSchema: tabsListSchema,
     },
     withLog("browser_tabs_list", tabsListHandler),
@@ -103,7 +119,7 @@ function buildServer(): McpServer {
     "browser_click",
     {
       description:
-        "Click an element. Pass the visible label to click by text (preferred; less fragile), or a CSS selector if there is no unique text. Waits for navigation/network-idle after the click.",
+        "Click an element. By default matches visible text (target_type=\"text\", preferred). Set target_type=\"selector\" to use a CSS selector. Waits for navigation/request-idle after the click.",
       inputSchema: clickSchema,
     },
     withLog("browser_click", clickHandler),
@@ -150,6 +166,24 @@ function buildServer(): McpServer {
     },
     withLog("browser_find", findHandler),
   );
+  server.registerTool(
+    "browser_wait",
+    {
+      description:
+        "Wait for an element to reach a given state. Useful for SPAs that load content asynchronously. Returns when the element matches the state or the timeout expires.",
+      inputSchema: waitSchema,
+    },
+    withLog("browser_wait", waitHandler),
+  );
+  server.registerTool(
+    "browser_evaluate",
+    {
+      description:
+        "Execute a JavaScript expression in the page context and return the JSON-serialized result. Useful for reading localStorage, cookies, window variables, or extracting data not visible in the DOM.",
+      inputSchema: evaluateSchema,
+    },
+    withLog("browser_evaluate", evaluateHandler),
+  );
 
   server.registerTool(
     "browser_open_visible",
@@ -175,11 +209,24 @@ function buildServer(): McpServer {
 
 type Session = { server: McpServer; transport: StreamableHTTPServerTransport };
 const sessions = new Map<string, Session>();
+const sessionLastUsed = new Map<string, number>();
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 min
+
+const MAX_BODY_BYTES = 1_048_576; // 1 MB
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (c) => chunks.push(c));
+    let bytes = 0;
+    req.on("data", (c: Buffer) => {
+      bytes += c.length;
+      if (bytes > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(Object.assign(new Error("Request body too large"), { statusCode: 413 }));
+        return;
+      }
+      chunks.push(c);
+    });
     req.on("end", () => {
       if (chunks.length === 0) return resolve(undefined);
       try {
@@ -221,16 +268,22 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse) {
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
         sessions.set(id, { server, transport });
+        sessionLastUsed.set(id, Date.now());
       },
     });
     transport.onclose = () => {
-      if (transport.sessionId) sessions.delete(transport.sessionId);
+      if (transport.sessionId) {
+        sessions.delete(transport.sessionId);
+        sessionLastUsed.delete(transport.sessionId);
+      }
     };
     const server = buildServer();
     await server.connect(transport);
     session = { server, transport };
   }
 
+  const activeSid = session.transport.sessionId;
+  if (activeSid) sessionLastUsed.set(activeSid, Date.now());
   await session.transport.handleRequest(req, res, body);
 }
 
@@ -243,7 +296,7 @@ const httpServer = createServer((req, res) => {
   handleMcp(req, res).catch((err) => {
     console.error("MCP handler error:", err);
     if (!res.headersSent) {
-      res.statusCode = 500;
+      res.statusCode = (err as { statusCode?: number }).statusCode ?? 500;
       res.setHeader("content-type", "application/json");
       res.end(
         JSON.stringify({
@@ -256,6 +309,21 @@ const httpServer = createServer((req, res) => {
   });
 });
 
+setInterval(() => {
+  const now = Date.now();
+  for (const [sid, ts] of sessionLastUsed) {
+    if (now - ts > SESSION_TTL_MS) {
+      const s = sessions.get(sid);
+      if (s) {
+        s.transport.close().catch(() => {});
+        s.server.close().catch(() => {});
+      }
+      sessions.delete(sid);
+      sessionLastUsed.delete(sid);
+    }
+  }
+}, 60_000).unref?.();
+
 async function shutdown() {
   httpServer.close();
   for (const { transport, server } of sessions.values()) {
@@ -263,6 +331,7 @@ async function shutdown() {
     await server.close().catch(() => {});
   }
   sessions.clear();
+  sessionLastUsed.clear();
   await browser.shutdown();
   process.exit(0);
 }

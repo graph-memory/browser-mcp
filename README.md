@@ -31,7 +31,7 @@ Add to your MCP settings:
 
 ### `browser_open`
 
-Open a URL in a new tab, or navigate an existing tab if `tab_id` is given. Waits for DOMContentLoaded plus a short network-idle settle. Does **not** return page content — call `browser_read` afterwards. Returns HTTP status, final URL, title, and tab_id.
+Open a URL in a new tab, or navigate an existing tab if `tab_id` is given. Waits for DOMContentLoaded plus a short request-idle settle. Does **not** return page content — call `browser_read` afterwards. Returns HTTP status, final URL, title, and tab_id.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -61,12 +61,13 @@ Find text occurrences on the current page. Returns up to `limit` snippets, each 
 
 ### `browser_click`
 
-Click an element. Pass the visible label to click by text (preferred — less fragile), or a CSS selector if there is no unique text. Waits for navigation/network-idle after the click.
+Click an element. By default matches visible text (`target_type="text"`, preferred). Set `target_type="selector"` to use a CSS selector. Waits for navigation/request-idle after the click.
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `target` | string | yes | Visible text of the element (e.g. `"Sign in"`). Falls back to CSS selector if no text match is found |
-| `tab_id` | string | no | Tab to act on; defaults to the active tab |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `target` | string | yes | — | Visible text of the element (e.g. `"Sign in"`), or a CSS selector when `target_type="selector"` |
+| `target_type` | `"text"` \| `"selector"` | no | `"text"` | How to interpret `target` |
+| `tab_id` | string | no | active tab | Tab to act on |
 
 ### `browser_type`
 
@@ -81,7 +82,7 @@ Fill a CSS-selected input/textarea with text. If `submit=true`, presses Enter af
 
 ### `browser_scroll`
 
-Scroll the current tab. `up`/`down` scroll by `amount` pixels; `top`/`bottom` jump to the page edges.
+Scroll the current tab. `up`/`down` scroll by `amount` pixels; `top`/`bottom` jump to the page edges. Returns the scroll position (pixels, percentage) so the caller knows where on the page it is.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -113,9 +114,29 @@ Reload the current page.
 |-----------|------|----------|-------------|
 | `tab_id` | string | no | Tab to act on; defaults to the active tab |
 
+### `browser_wait`
+
+Wait for an element to reach a given state. Useful for SPAs that load content asynchronously.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `selector` | string | yes | — | CSS selector to wait for |
+| `state` | `"visible"` \| `"hidden"` \| `"attached"` \| `"detached"` | no | `"visible"` | Element state to wait for |
+| `timeout` | integer | no | `10000` | Max wait time in milliseconds |
+| `tab_id` | string | no | active tab | Tab to act on |
+
+### `browser_evaluate`
+
+Execute a JavaScript expression in the page context and return the JSON-serialized result. Useful for reading `localStorage`, cookies, `window.__NEXT_DATA__`, or extracting data not visible in the DOM.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `expression` | string | yes | JavaScript expression to evaluate (must return a JSON-serializable value) |
+| `tab_id` | string | no | Tab to act on; defaults to the active tab |
+
 ### `browser_tabs_list`
 
-List all open tabs with their `tab_id`, title, and URL. No parameters.
+List all open tabs with their `tab_id`, title, and URL. The active tab is marked with `→`. No parameters.
 
 ### `browser_tab_switch`
 
@@ -161,6 +182,13 @@ Take a PNG screenshot of the current tab. Default: viewport (1280x900). `full_pa
 | `BROWSER_MCP_HEADLESS` | `1` | Run headless (`0` for visible) |
 | `BROWSER_MCP_TAB_TTL_SEC` | `600` | Auto-close inactive tabs after N seconds |
 | `BROWSER_MCP_MAX_CHARS` | `50000` | Max characters returned by `browser_read` |
+| `BROWSER_MCP_PROXY` | — | Proxy server URL (e.g. `http://proxy:8080`, `socks5://proxy:1080`) |
+| `BROWSER_MCP_PROXY_BYPASS` | — | Comma-separated list of domains to bypass proxy (e.g. `localhost,127.0.0.1`) |
+| `BROWSER_MCP_PROXY_USERNAME` | — | Proxy auth username |
+| `BROWSER_MCP_PROXY_PASSWORD` | — | Proxy auth password |
+| `BROWSER_MCP_MAX_HTML_BYTES` | `10000000` | Cap raw HTML size before parsing (protects against OOM) |
+| `BROWSER_MCP_SETTLE_MS` | `500` | Quiet-window duration (ms) for request-counting settle |
+| `BROWSER_MCP_SETTLE_TIMEOUT_MS` | `3000` | Hard timeout (ms) for settle after navigation/click |
 
 ## How it works
 

@@ -8,10 +8,16 @@ import { join } from "node:path";
 const DEFAULT_PROFILE_DIR = join(homedir(), ".browser-mcp", "profile");
 const DEFAULT_TAB_TTL_MS = (Number(process.env.BROWSER_MCP_TAB_TTL_SEC) || 600) * 1000;
 const SWEEP_INTERVAL_MS = 60_000;
+const SETTLE_IDLE_MS = Number(process.env.BROWSER_MCP_SETTLE_MS) || 500;
+const SETTLE_TIMEOUT_MS = Number(process.env.BROWSER_MCP_SETTLE_TIMEOUT_MS) || 3_000;
 
 const STEALTH = process.env.BROWSER_MCP_STEALTH !== "0";
 const CHANNEL = process.env.BROWSER_MCP_CHANNEL ?? "chrome";
 const DEFAULT_HEADLESS = process.env.BROWSER_MCP_HEADLESS !== "0";
+const PROXY_SERVER = process.env.BROWSER_MCP_PROXY ?? "";
+const PROXY_BYPASS = process.env.BROWSER_MCP_PROXY_BYPASS ?? "";
+const PROXY_USERNAME = process.env.BROWSER_MCP_PROXY_USERNAME ?? "";
+const PROXY_PASSWORD = process.env.BROWSER_MCP_PROXY_PASSWORD ?? "";
 
 if (STEALTH) extraChromium.use(StealthPlugin());
 const chromium = STEALTH ? extraChromium : vanillaChromium;
@@ -21,6 +27,7 @@ export type TabInfo = { tab_id: string; title: string; url: string; status?: num
 class BrowserManager {
   private context: BrowserContext | null = null;
   private tabs = new Map<string, Page>();
+  private pageToId = new Map<Page, string>();
   private lastUsed = new Map<string, number>();
   private currentTabId: string | null = null;
   private profileDir: string;
@@ -40,22 +47,32 @@ class BrowserManager {
       headless: this.headless,
       channel: CHANNEL,
       viewport: { width: 1280, height: 900 },
+      ...(PROXY_SERVER && {
+        proxy: {
+          server: PROXY_SERVER,
+          ...(PROXY_BYPASS && { bypass: PROXY_BYPASS }),
+          ...(PROXY_USERNAME && { username: PROXY_USERNAME }),
+          ...(PROXY_PASSWORD && { password: PROXY_PASSWORD }),
+        },
+      }),
     });
     for (const page of this.context.pages()) {
       this.registerPage(page);
     }
-    this.context.on("page", (p) => this.registerPage(p));
+    this.context.on("page", (p) => this.registerPage(p, false));
     this.startSweeper();
     return this.context;
   }
 
-  private registerPage(page: Page): string {
+  private registerPage(page: Page, setActive = true): string {
     const id = nanoid(8);
     this.tabs.set(id, page);
+    this.pageToId.set(page, id);
     this.lastUsed.set(id, Date.now());
-    this.currentTabId = id;
+    if (setActive) this.currentTabId = id;
     page.on("close", () => {
       this.tabs.delete(id);
+      this.pageToId.delete(page);
       this.lastUsed.delete(id);
       if (this.currentTabId === id) {
         const next = this.tabs.keys().next();
@@ -87,7 +104,7 @@ class BrowserManager {
   async openTab(url: string): Promise<TabInfo> {
     const ctx = await this.ensureContext();
     const page = await ctx.newPage();
-    const id = [...this.tabs.entries()].find(([, p]) => p === page)?.[0] ?? this.registerPage(page);
+    const id = this.pageToId.get(page) ?? this.registerPage(page);
     this.currentTabId = id;
     const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await this.settle(page);
@@ -121,6 +138,10 @@ class BrowserManager {
     this.currentTabId = tabId;
   }
 
+  get activeTabId(): string | null {
+    return this.currentTabId;
+  }
+
   getPage(tabId?: string): Page {
     const id = tabId ?? this.currentTabId;
     if (!id) throw new Error("No active tab. Call browser_open first.");
@@ -131,20 +152,47 @@ class BrowserManager {
   }
 
   async settle(page: Page): Promise<void> {
-    try {
-      await page.waitForLoadState("networkidle", { timeout: 5_000 });
-    } catch {
-      // best-effort
-    }
+    await page.waitForLoadState("domcontentloaded").catch(() => {});
+    await new Promise<void>((resolve) => {
+      let inflight = 0;
+      let settled = false;
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      const hardTimer = setTimeout(done, SETTLE_TIMEOUT_MS);
+      function done() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(hardTimer);
+        if (idleTimer) clearTimeout(idleTimer);
+        page.removeListener("request", onReq);
+        page.removeListener("requestfinished", onEnd);
+        page.removeListener("requestfailed", onEnd);
+        resolve();
+      }
+      function resetIdle() {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = inflight === 0 ? setTimeout(done, SETTLE_IDLE_MS) : null;
+      }
+      function onReq() {
+        inflight++;
+        if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      }
+      function onEnd() {
+        inflight = Math.max(0, inflight - 1);
+        resetIdle();
+      }
+      page.on("request", onReq);
+      page.on("requestfinished", onEnd);
+      page.on("requestfailed", onEnd);
+      resetIdle();
+    });
   }
 
-  async click(target: string, tabId?: string): Promise<void> {
+  async click(target: string, targetType: "text" | "selector", tabId?: string): Promise<void> {
     const page = this.getPage(tabId);
-    const byText = page.getByText(target, { exact: false }).first();
-    if (await byText.count()) {
-      await byText.click({ timeout: 10_000 });
-    } else {
+    if (targetType === "selector") {
       await page.locator(target).first().click({ timeout: 10_000 });
+    } else {
+      await page.getByText(target, { exact: false }).first().click({ timeout: 10_000 });
     }
     await this.settle(page);
   }
@@ -152,37 +200,69 @@ class BrowserManager {
   async type(selector: string, text: string, submit: boolean, tabId?: string): Promise<void> {
     const page = this.getPage(tabId);
     const loc = page.locator(selector).first();
-    await loc.fill(text, { timeout: 10_000 });
+    const isContentEditable = await loc.evaluate(
+      (el) =>
+        el instanceof HTMLElement &&
+        el.isContentEditable &&
+        !(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement),
+    );
+    if (isContentEditable) {
+      await loc.evaluate((el, t) => {
+        (el as HTMLElement).textContent = t;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }, text);
+    } else {
+      await loc.fill(text, { timeout: 10_000 });
+    }
     if (submit) {
       await loc.press("Enter");
       await this.settle(page);
     }
   }
 
-  async scroll(direction: "up" | "down" | "top" | "bottom", amount: number, tabId?: string): Promise<void> {
+  async scroll(
+    direction: "up" | "down" | "top" | "bottom",
+    amount: number,
+    tabId?: string,
+  ): Promise<{ scrollY: number; scrollHeight: number; viewportHeight: number }> {
     const page = this.getPage(tabId);
-    await page.evaluate(
+    return await page.evaluate(
       ({ direction, amount }) => {
         if (direction === "top") window.scrollTo(0, 0);
         else if (direction === "bottom") window.scrollTo(0, document.body.scrollHeight);
         else window.scrollBy(0, direction === "down" ? amount : -amount);
+        return {
+          scrollY: Math.round(window.scrollY),
+          scrollHeight: document.body.scrollHeight,
+          viewportHeight: window.innerHeight,
+        };
       },
       { direction, amount },
     );
   }
 
-  async back(tabId?: string): Promise<TabInfo> {
+  async back(tabId?: string): Promise<TabInfo & { no_history?: boolean }> {
     const page = this.getPage(tabId);
-    await page.goBack({ waitUntil: "domcontentloaded" });
-    await this.settle(page);
-    return { tab_id: tabId ?? this.currentTabId!, title: await page.title(), url: page.url() };
+    const resp = await page.goBack({ waitUntil: "domcontentloaded" });
+    if (resp !== null) await this.settle(page);
+    return {
+      tab_id: tabId ?? this.currentTabId!,
+      title: await page.title(),
+      url: page.url(),
+      ...(resp === null && { no_history: true }),
+    };
   }
 
-  async forward(tabId?: string): Promise<TabInfo> {
+  async forward(tabId?: string): Promise<TabInfo & { no_history?: boolean }> {
     const page = this.getPage(tabId);
-    await page.goForward({ waitUntil: "domcontentloaded" });
-    await this.settle(page);
-    return { tab_id: tabId ?? this.currentTabId!, title: await page.title(), url: page.url() };
+    const resp = await page.goForward({ waitUntil: "domcontentloaded" });
+    if (resp !== null) await this.settle(page);
+    return {
+      tab_id: tabId ?? this.currentTabId!,
+      title: await page.title(),
+      url: page.url(),
+      ...(resp === null && { no_history: true }),
+    };
   }
 
   async reload(tabId?: string): Promise<TabInfo> {
@@ -207,7 +287,7 @@ class BrowserManager {
           while (node && node.nodeType === 1 && parts.length < 5) {
             let part = node.tagName.toLowerCase();
             if (node.id) {
-              part += `#${node.id}`;
+              part += `#${CSS.escape(node.id)}`;
               parts.unshift(part);
               break;
             }
@@ -251,14 +331,14 @@ class BrowserManager {
     ctx.once("close", () => {
       this.context = null;
       this.tabs.clear();
+      this.pageToId.clear();
       this.lastUsed.clear();
       this.currentTabId = null;
       this.headless = DEFAULT_HEADLESS;
     });
     const existing = ctx.pages()[0];
     const page = existing ?? (await ctx.newPage());
-    const id =
-      [...this.tabs.entries()].find(([, p]) => p === page)?.[0] ?? this.registerPage(page);
+    const id = this.pageToId.get(page) ?? this.registerPage(page);
     this.currentTabId = id;
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
     return { tab_id: id, title: await page.title(), url: page.url() };
@@ -278,6 +358,7 @@ class BrowserManager {
       await this.context.close().catch(() => {});
       this.context = null;
       this.tabs.clear();
+      this.pageToId.clear();
       this.lastUsed.clear();
       this.currentTabId = null;
     }

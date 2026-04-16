@@ -41,8 +41,10 @@ export async function readHandler({
   if (selector) {
     const el = await page.$(selector);
     if (!el) throw new Error(`Selector not found: ${selector}`);
-    html = await el.evaluate((n) => (n as HTMLElement).outerHTML);
-    text = await el.evaluate((n) => (n as HTMLElement).innerText);
+    ({ html, text } = await el.evaluate((n) => ({
+      html: (n as HTMLElement).outerHTML,
+      text: (n as HTMLElement).innerText,
+    })));
   } else {
     html = await page.content();
     text = await page.evaluate(() => document.body.innerText);
@@ -51,7 +53,7 @@ export async function readHandler({
   let body: string;
   if (mode === "html") body = truncate(html, max);
   else if (mode === "text") body = truncate(text, max);
-  else body = htmlToMarkdown(html, page.url(), max);
+  else body = htmlToMarkdown(html, page.url(), max, text);
 
   return {
     content: [{ type: "text" as const, text: `URL: ${page.url()}\n\n${body}` }],

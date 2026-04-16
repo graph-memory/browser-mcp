@@ -5,13 +5,27 @@ export const clickSchema = {
   target: z
     .string()
     .describe(
-      "Visible text of the element to click (preferred, e.g. \"Sign in\"). Falls back to treating the value as a CSS selector if no text match is found.",
+      "Visible text of the element to click (e.g. \"Sign in\"), or a CSS selector when target_type=\"selector\".",
+    ),
+  target_type: z
+    .enum(["text", "selector"])
+    .default("text")
+    .describe(
+      "How to interpret target: \"text\" matches visible text (default, preferred), \"selector\" uses a CSS selector.",
     ),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export async function clickHandler({ target, tab_id }: { target: string; tab_id?: string }) {
-  await browser.click(target, tab_id);
-  return { content: [{ type: "text" as const, text: `Clicked: ${target}` }] };
+export async function clickHandler({
+  target,
+  target_type,
+  tab_id,
+}: {
+  target: string;
+  target_type: "text" | "selector";
+  tab_id?: string;
+}) {
+  await browser.click(target, target_type, tab_id);
+  return { content: [{ type: "text" as const, text: `Clicked (${target_type}): ${target}` }] };
 }
 
 export const typeSchema = {
@@ -62,8 +76,18 @@ export async function scrollHandler({
   amount: number;
   tab_id?: string;
 }) {
-  await browser.scroll(direction, amount, tab_id);
-  return { content: [{ type: "text" as const, text: `Scrolled ${direction}` }] };
+  const pos = await browser.scroll(direction, amount, tab_id);
+  const pct = pos.scrollHeight > pos.viewportHeight
+    ? Math.round((pos.scrollY / (pos.scrollHeight - pos.viewportHeight)) * 100)
+    : 100;
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `Scrolled ${direction} — position: ${pos.scrollY}/${pos.scrollHeight}px (${pct}%)`,
+      },
+    ],
+  };
 }
 
 export const backSchema = {
@@ -71,7 +95,10 @@ export const backSchema = {
 };
 export async function backHandler({ tab_id }: { tab_id?: string }) {
   const info = await browser.back(tab_id);
-  return { content: [{ type: "text" as const, text: `Back → ${info.url}` }] };
+  const text = info.no_history
+    ? `Already at earliest history entry — ${info.url}`
+    : `Back → ${info.url}`;
+  return { content: [{ type: "text" as const, text }] };
 }
 
 export const forwardSchema = {
@@ -79,7 +106,10 @@ export const forwardSchema = {
 };
 export async function forwardHandler({ tab_id }: { tab_id?: string }) {
   const info = await browser.forward(tab_id);
-  return { content: [{ type: "text" as const, text: `Forward → ${info.url}` }] };
+  const text = info.no_history
+    ? `Already at latest history entry — ${info.url}`
+    : `Forward → ${info.url}`;
+  return { content: [{ type: "text" as const, text }] };
 }
 
 export const reloadSchema = {
@@ -119,5 +149,59 @@ export async function findHandler({
   const text = hits
     .map((h, i) => `${i + 1}. [${h.tag}] ${h.snippet}\n   selector: ${h.selector}`)
     .join("\n");
+  return { content: [{ type: "text" as const, text }] };
+}
+
+export const waitSchema = {
+  selector: z.string().describe("CSS selector to wait for"),
+  state: z
+    .enum(["visible", "hidden", "attached", "detached"])
+    .default("visible")
+    .describe("Element state to wait for"),
+  timeout: z
+    .number()
+    .int()
+    .positive()
+    .default(10000)
+    .describe("Max wait time in milliseconds"),
+  tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
+};
+export async function waitHandler({
+  selector,
+  state,
+  timeout,
+  tab_id,
+}: {
+  selector: string;
+  state: "visible" | "hidden" | "attached" | "detached";
+  timeout: number;
+  tab_id?: string;
+}) {
+  const page = browser.getPage(tab_id);
+  await page.locator(selector).waitFor({ state, timeout });
+  return {
+    content: [{ type: "text" as const, text: `Element ${selector} is ${state}` }],
+  };
+}
+
+export const evaluateSchema = {
+  expression: z
+    .string()
+    .describe(
+      "JavaScript expression to evaluate in the page context. Must return a JSON-serializable value.",
+    ),
+  tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
+};
+export async function evaluateHandler({
+  expression,
+  tab_id,
+}: {
+  expression: string;
+  tab_id?: string;
+}) {
+  const page = browser.getPage(tab_id);
+  const result = await page.evaluate(expression);
+  const text =
+    result === undefined ? "undefined" : JSON.stringify(result, null, 2);
   return { content: [{ type: "text" as const, text }] };
 }

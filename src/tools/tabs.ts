@@ -4,8 +4,9 @@ import { browser } from "../browser.js";
 export const tabsListSchema = {};
 export async function tabsListHandler() {
   const tabs = await browser.listTabs();
+  const active = browser.activeTabId;
   const text = tabs.length
-    ? tabs.map((t) => `- ${t.tab_id}  ${t.title}  ${t.url}`).join("\n")
+    ? tabs.map((t) => `${t.tab_id === active ? "→ " : "  "}${t.tab_id}  ${t.title}  ${t.url}`).join("\n")
     : "(no tabs open)";
   return { content: [{ type: "text" as const, text }] };
 }
