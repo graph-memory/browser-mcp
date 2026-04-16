@@ -2,6 +2,8 @@
 
 MCP server that gives Claude (or any MCP client) a full browser — open pages, read content, click, type, scroll, take screenshots, and manage tabs. Powered by Playwright with stealth mode and a persistent cookie/localStorage profile.
 
+> **Disclaimer:** This tool automates browser interactions and may violate the terms of service or acceptable use policies of websites it accesses. You are solely responsible for how you use it and which sites you interact with. The authors assume no liability for any consequences arising from its use.
+
 ## Quick start
 
 ```bash
