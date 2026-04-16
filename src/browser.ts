@@ -42,12 +42,39 @@ export class BrowserManager {
     this.headless = config.headless;
   }
 
+  // Overrides for context-level settings (applied on next ensureContext)
+  private _overrides: {
+    viewport?: { width: number; height: number };
+    deviceScaleFactor?: number;
+    isMobile?: boolean;
+    hasTouch?: boolean;
+    userAgent?: string;
+    locale?: string;
+    colorScheme?: "light" | "dark" | "no-preference";
+  } = {};
+
   private async ensureContext(): Promise<BrowserContext> {
     if (this.context) return this.context;
+
+    const viewport = this._overrides.viewport ?? config.viewport;
+    const deviceScaleFactor = this._overrides.deviceScaleFactor ?? config.deviceScaleFactor;
+    const isMobile = this._overrides.isMobile ?? config.mobile;
+    const hasTouch = this._overrides.hasTouch ?? config.mobile;
+    const userAgent = this._overrides.userAgent ?? config.userAgent;
+    const locale = this._overrides.locale ?? config.locale;
+    const colorScheme = this._overrides.colorScheme ?? config.colorScheme;
+
     this.context = await chromium.launchPersistentContext(this.profileDir, {
       headless: this.headless,
       channel: config.channel,
-      viewport: { width: 1280, height: 900 },
+      viewport,
+      deviceScaleFactor,
+      isMobile,
+      hasTouch,
+      javaScriptEnabled: config.javaScript,
+      ...(userAgent && { userAgent }),
+      ...(locale && { locale }),
+      ...(colorScheme && { colorScheme }),
       ...(config.proxy && {
         proxy: {
           server: config.proxy,
@@ -57,6 +84,10 @@ export class BrowserManager {
         },
       }),
     });
+    if (locale) {
+      this._extraHeaders["Accept-Language"] = locale;
+      await this.context.setExtraHTTPHeaders({ ...this._extraHeaders });
+    }
     for (const page of this.context.pages()) {
       this.registerPage(page);
     }
@@ -349,6 +380,57 @@ export class BrowserManager {
   async screenshot(fullPage: boolean, tabId?: string): Promise<Buffer> {
     const page = this.getPage(tabId);
     return await page.screenshot({ fullPage, type: "png" });
+  }
+
+  async setViewport(width: number, height: number, tabId?: string): Promise<void> {
+    const page = this.getPage(tabId);
+    await page.setViewportSize({ width, height });
+  }
+
+  async setUserAgent(ua: string): Promise<void> {
+    const ctx = await this.ensureContext();
+    this._extraHeaders["User-Agent"] = ua;
+    await ctx.setExtraHTTPHeaders({ ...this._extraHeaders });
+    // Override navigator.userAgent for all future pages
+    await ctx.addInitScript(`Object.defineProperty(navigator, 'userAgent', { get: () => ${JSON.stringify(ua)} })`);
+    // Apply to all existing pages
+    for (const page of ctx.pages()) {
+      await page.evaluate((u) => {
+        Object.defineProperty(navigator, "userAgent", { get: () => u });
+      }, ua).catch(() => {});
+    }
+  }
+
+  async setLocale(locale: string): Promise<void> {
+    const ctx = await this.ensureContext();
+    this._extraHeaders["Accept-Language"] = locale;
+    await ctx.setExtraHTTPHeaders({ ...this._extraHeaders });
+  }
+
+  async setColorScheme(scheme: "light" | "dark" | "no-preference", tabId?: string): Promise<void> {
+    const page = this.getPage(tabId);
+    await page.emulateMedia({ colorScheme: scheme });
+  }
+
+  private _extraHeaders: Record<string, string> = {};
+
+  /**
+   * Restart the browser context with new context-level settings.
+   * All open tabs are lost. Use for deviceScaleFactor, isMobile, hasTouch.
+   */
+  async reconfigure(overrides: {
+    viewport?: { width: number; height: number };
+    deviceScaleFactor?: number;
+    isMobile?: boolean;
+    hasTouch?: boolean;
+    userAgent?: string;
+    locale?: string;
+    colorScheme?: "light" | "dark" | "no-preference";
+  }): Promise<void> {
+    Object.assign(this._overrides, overrides);
+    this._extraHeaders = {};
+    await this.shutdown();
+    await this.ensureContext();
   }
 
   async shutdown(): Promise<void> {

@@ -27,6 +27,7 @@ import {
   openVisibleSchema, makeOpenVisibleHandler,
   screenshotSchema, makeScreenshotHandler,
 } from "./tools/visual.js";
+import { configureSchema, makeConfigureHandler } from "./tools/configure.js";
 import { logInfo, logError } from "./log.js";
 
 type ToolResult = {
@@ -145,9 +146,15 @@ function buildServer(browser: BrowserManager): McpServer {
 
   server.registerTool("browser_screenshot", {
     description:
-      "Take a PNG screenshot of the current tab. Default: viewport (1280x900). full_page=true captures the entire scrollable page.",
+      "Take a PNG screenshot of the current tab. Default: viewport. full_page=true captures the entire scrollable page.",
     inputSchema: screenshotSchema,
   }, withLog("browser_screenshot", makeScreenshotHandler(browser)));
+
+  server.registerTool("browser_configure", {
+    description:
+      "Change browser settings at runtime. All parameters are optional — pass only what you want to change. Viewport and color_scheme apply to the current (or specified) tab. User-agent and locale apply to the whole browser context (all tabs).",
+    inputSchema: configureSchema,
+  }, withLog("browser_configure", makeConfigureHandler(browser)));
 
   return server;
 }
@@ -318,12 +325,28 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse) {
   await session.transport.handleRequest(req, res, body);
 }
 
+function checkAuth(req: IncomingMessage, res: ServerResponse): boolean {
+  if (!config.apiKey) return true;
+  const auth = req.headers["authorization"] ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (token === config.apiKey) return true;
+  res.statusCode = 401;
+  res.setHeader("content-type", "application/json");
+  res.end(JSON.stringify({
+    jsonrpc: "2.0",
+    error: { code: -32000, message: "Unauthorized — invalid or missing API key" },
+    id: null,
+  }));
+  return false;
+}
+
 const httpServer = createServer((req, res) => {
   if (!req.url?.startsWith("/mcp")) {
     res.statusCode = 404;
     res.end("Not found");
     return;
   }
+  if (!checkAuth(req, res)) return;
   handleMcp(req, res).catch((err) => {
     console.error("MCP handler error:", err);
     if (!res.headersSent) {
@@ -359,4 +382,9 @@ httpServer.listen(config.port, config.host, () => {
   console.error(`browser-mcp listening on http://${config.host}:${config.port}/mcp`);
   console.error(`  /mcp         → default profile`);
   console.error(`  /mcp/<name>  → named profile (e.g. /mcp/test1)`);
+  if (config.apiKey) {
+    console.error(`  auth         → Bearer token required`);
+  } else {
+    console.error(`  auth         → disabled (set --api-key or BROWSER_MCP_API_KEY to enable)`);
+  }
 });

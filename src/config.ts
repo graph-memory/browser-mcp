@@ -24,6 +24,16 @@ const program = new Command()
   .option("--settle-timeout-ms <ms>", "Hard timeout for settle after navigation/click")
   .option("--session-ttl <seconds>", "Session TTL in seconds")
   .option("--profile-dir <path>", "Base directory for browser profiles")
+  .option("--viewport <WxH>", "Default viewport size, e.g. 1920x1080 (default: 1280x900)")
+  .option("--user-agent <string>", "Default User-Agent string")
+  .option("--locale <lang>", "Default Accept-Language locale, e.g. en-US")
+  .option("--color-scheme <mode>", "Default color scheme: light, dark, no-preference")
+  .option("--device-scale-factor <number>", "Device pixel ratio, e.g. 2 for retina (default: 1)")
+  .option("--mobile", "Enable mobile emulation (isMobile + hasTouch)")
+  .option("--no-mobile", "Disable mobile emulation (default)")
+  .option("--javascript", "Enable JavaScript (default)")
+  .option("--no-javascript", "Disable JavaScript")
+  .option("--api-key <key>", "API key for authentication (Bearer token). If set, all requests must include Authorization header")
   .parse();
 
 const opts = program.opts();
@@ -44,6 +54,18 @@ function bool(cli: boolean | undefined, env: string | undefined, fallback: boole
   return fallback;
 }
 
+function parseViewport(raw: string | undefined): { width: number; height: number } | undefined {
+  if (!raw) return undefined;
+  const m = raw.match(/^(\d+)x(\d+)$/i);
+  if (!m) return undefined;
+  return { width: Number(m[1]), height: Number(m[2]) };
+}
+
+const DEFAULT_VIEWPORT = { width: 1280, height: 900 };
+
+const cliViewport = parseViewport(opts.viewport);
+const envViewport = parseViewport(process.env.BROWSER_MCP_VIEWPORT ?? undefined);
+
 export const config = {
   port: num(opts.port, process.env.BROWSER_MCP_PORT, 7777),
   host: str(opts.host, process.env.BROWSER_MCP_HOST, "127.0.0.1"),
@@ -51,6 +73,7 @@ export const config = {
   headless: bool(opts.headless, process.env.BROWSER_MCP_HEADLESS, true),
   stealth: bool(opts.stealth, process.env.BROWSER_MCP_STEALTH, true),
   channel: str(opts.channel, process.env.BROWSER_MCP_CHANNEL, "chrome"),
+  javaScript: bool(opts.javascript, process.env.BROWSER_MCP_JAVASCRIPT, true),
 
   proxy: str(opts.proxy, process.env.BROWSER_MCP_PROXY, ""),
   proxyBypass: str(opts.proxyBypass, process.env.BROWSER_MCP_PROXY_BYPASS, ""),
@@ -65,4 +88,12 @@ export const config = {
   sessionTtlSec: num(opts.sessionTtl, process.env.BROWSER_MCP_SESSION_TTL_SEC, 1800),
 
   profileDir: str(opts.profileDir, process.env.BROWSER_MCP_PROFILE_DIR, ""),
+  viewport: cliViewport ?? envViewport ?? DEFAULT_VIEWPORT,
+  userAgent: str(opts.userAgent, process.env.BROWSER_MCP_USER_AGENT, ""),
+  locale: str(opts.locale, process.env.BROWSER_MCP_LOCALE, ""),
+  colorScheme: str(opts.colorScheme, process.env.BROWSER_MCP_COLOR_SCHEME, "") as
+    | "light" | "dark" | "no-preference" | "",
+  deviceScaleFactor: num(opts.deviceScaleFactor, process.env.BROWSER_MCP_DEVICE_SCALE_FACTOR, 1),
+  mobile: bool(opts.mobile, process.env.BROWSER_MCP_MOBILE, false),
+  apiKey: str(opts.apiKey, process.env.BROWSER_MCP_API_KEY, ""),
 } as const;
