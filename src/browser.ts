@@ -220,19 +220,23 @@ export class BrowserManager {
     });
   }
 
-  async click(target: string, targetType: "text" | "selector", tabId?: string): Promise<void> {
+  async click(target: string, targetType: LocatorType, tabId?: string, opts?: LocatorOpts): Promise<void> {
     const page = this.getPage(tabId);
-    if (targetType === "selector") {
-      await page.locator(target).first().click({ timeout: 10_000 });
-    } else {
-      await page.getByText(target, { exact: false }).first().click({ timeout: 10_000 });
-    }
+    const loc = resolveLocator(page, target, targetType, opts).first();
+    await loc.click({ timeout: 10_000 });
     await this.settle(page);
   }
 
-  async type(selector: string, text: string, submit: boolean, tabId?: string): Promise<void> {
+  async type(
+    selector: string,
+    text: string,
+    submit: boolean,
+    tabId?: string,
+    targetType: LocatorType = "selector",
+    opts?: LocatorOpts,
+  ): Promise<void> {
     const page = this.getPage(tabId);
-    const loc = page.locator(selector).first();
+    const loc = resolveLocator(page, selector, targetType, opts).first();
     const isContentEditable = await loc.evaluate(
       (el) =>
         el instanceof HTMLElement &&
@@ -382,6 +386,57 @@ export class BrowserManager {
     return await page.screenshot({ fullPage, type: "png" });
   }
 
+  /**
+   * Accessibility snapshot via CDP. Playwright 1.40+ no longer exposes
+   * `page.accessibility.snapshot()`, so we pull the AX tree directly from
+   * Chrome DevTools Protocol. Result is more reliable for LLM interaction
+   * than scraping Markdown — roles, names, states come from the platform
+   * accessibility API.
+   */
+  async a11ySnapshot(opts: {
+    tabId?: string;
+    selector?: string;
+    maxDepth?: number;
+    interestingOnly?: boolean;
+  }): Promise<AxNode | null> {
+    const page = this.getPage(opts.tabId);
+    const ctx = await this.ensureContext();
+    const cdp = await ctx.newCDPSession(page);
+    try {
+      await cdp.send("Accessibility.enable");
+
+      let rawNodes: AxCdpNode[];
+      if (opts.selector) {
+        const handle = await page.$(opts.selector);
+        if (!handle) throw new Error(`selector not found: ${opts.selector}`);
+        const { root } = await cdp.send("DOM.getDocument");
+        const { nodeId } = await cdp.send("DOM.querySelector", {
+          nodeId: root.nodeId,
+          selector: opts.selector,
+        });
+        if (!nodeId) throw new Error(`selector not found in DOM: ${opts.selector}`);
+        const { node } = await cdp.send("DOM.describeNode", { nodeId });
+        const backendNodeId = node.backendNodeId;
+        if (backendNodeId === undefined) throw new Error("cannot resolve backendNodeId");
+        const res = await cdp.send("Accessibility.getPartialAXTree", {
+          backendNodeId,
+          fetchRelatives: true,
+        });
+        rawNodes = res.nodes as AxCdpNode[];
+      } else {
+        const res = await cdp.send("Accessibility.getFullAXTree");
+        rawNodes = res.nodes as AxCdpNode[];
+      }
+
+      const tree = cdpAxToTree(rawNodes, opts.interestingOnly ?? true);
+      if (!tree) return null;
+      if (opts.maxDepth !== undefined) return truncateAx(tree, opts.maxDepth);
+      return tree;
+    } finally {
+      await cdp.detach().catch(() => {});
+    }
+  }
+
   async setViewport(width: number, height: number, tabId?: string): Promise<void> {
     const page = this.getPage(tabId);
     await page.setViewportSize({ width, height });
@@ -447,4 +502,236 @@ export class BrowserManager {
       this.currentTabId = null;
     }
   }
+}
+
+// --- Locator strategies (role/label/text/placeholder/testid/selector) ---
+
+export type LocatorType = "text" | "role" | "label" | "placeholder" | "testid" | "selector";
+
+export type LocatorOpts = {
+  role?: string;                // ARIA role when targetType === "role"
+  exact?: boolean;              // exact match for text/role/label/placeholder
+};
+
+type LocatorFactory = import("playwright").Page;
+
+/**
+ * Resolve a human-friendly target description into a Playwright Locator.
+ * Centralizes the selector-strategy switch used by click/type/expect.
+ */
+export function resolveLocator(
+  page: LocatorFactory,
+  target: string,
+  type: LocatorType,
+  opts: LocatorOpts = {},
+): ReturnType<LocatorFactory["locator"]> {
+  switch (type) {
+    case "selector":
+      return page.locator(target);
+    case "text":
+      return page.getByText(target, { exact: opts.exact ?? false });
+    case "role": {
+      // Playwright's getByRole requires a role name; we take it from opts.role
+      // (preferred) or default to "button" since that's the most common click target.
+      const role = (opts.role as Parameters<LocatorFactory["getByRole"]>[0]) ?? "button";
+      return page.getByRole(role, { name: target, exact: opts.exact ?? false });
+    }
+    case "label":
+      return page.getByLabel(target, { exact: opts.exact ?? false });
+    case "placeholder":
+      return page.getByPlaceholder(target, { exact: opts.exact ?? false });
+    case "testid":
+      return page.getByTestId(target);
+    default:
+      return page.locator(target);
+  }
+}
+
+// --- Accessibility snapshot types & helpers ---
+
+/** Raw CDP AXNode shape. Not all fields are used. */
+type AxCdpValue = { type: string; value?: unknown };
+type AxCdpProp = { name: string; value: AxCdpValue };
+type AxCdpNode = {
+  nodeId: string;
+  parentId?: string;
+  childIds?: string[];
+  backendDOMNodeId?: number;
+  ignored?: boolean;
+  role?: AxCdpValue;
+  name?: AxCdpValue;
+  value?: AxCdpValue;
+  description?: AxCdpValue;
+  properties?: AxCdpProp[];
+};
+
+function cdpAxToTree(nodes: AxCdpNode[], interestingOnly: boolean): AxNode | null {
+  const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+  // Find root: a node whose parent isn't in the map, or with no parentId.
+  const root = nodes.find((n) => !n.parentId || !byId.has(n.parentId));
+  if (!root) return null;
+
+  const build = (raw: AxCdpNode): AxNode | null => {
+    if (interestingOnly && raw.ignored) {
+      // Skip ignored, but keep descendants — flatten children up.
+      const kids: AxNode[] = [];
+      for (const cid of raw.childIds ?? []) {
+        const cn = byId.get(cid);
+        if (!cn) continue;
+        const b = build(cn);
+        if (b) kids.push(b);
+      }
+      // If ignored node has one child, collapse to that child; otherwise drop.
+      if (kids.length === 1) return kids[0];
+      if (kids.length > 1) return { role: "group", children: kids };
+      return null;
+    }
+
+    const role = (raw.role?.value as string | undefined) ?? "generic";
+    const node: AxNode = { role };
+
+    const name = raw.name?.value as string | undefined;
+    if (name) node.name = name;
+    const value = raw.value?.value;
+    if (value !== undefined && value !== null) node.value = value as string | number;
+    const description = raw.description?.value as string | undefined;
+    if (description) node.description = description;
+
+    for (const p of raw.properties ?? []) {
+      const v = p.value?.value;
+      switch (p.name) {
+        case "disabled": if (v) node.disabled = true; break;
+        case "required": if (v) node.required = true; break;
+        case "readonly": if (v) node.readonly = true; break;
+        case "focused": if (v) node.focused = true; break;
+        case "selected": if (v) node.selected = true; break;
+        case "expanded":
+          if (v !== undefined) node.expanded = Boolean(v); break;
+        case "checked":
+          if (v !== undefined) node.checked = v === "mixed" ? "mixed" : Boolean(v); break;
+        case "pressed":
+          if (v !== undefined) node.pressed = v === "mixed" ? "mixed" : Boolean(v); break;
+        case "level":
+          if (typeof v === "number") node.level = v; break;
+        case "invalid":
+          if (typeof v === "string" && v !== "false") node.invalid = v; break;
+        case "valuemin":
+          if (typeof v === "number") node.valuemin = v; break;
+        case "valuemax":
+          if (typeof v === "number") node.valuemax = v; break;
+        case "valuetext":
+          if (typeof v === "string") node.valuetext = v; break;
+        case "roledescription":
+          if (typeof v === "string") node.roledescription = v; break;
+        case "haspopup":
+          if (typeof v === "string" && v !== "false") node.haspopup = v; break;
+        case "orientation":
+          if (typeof v === "string") node.orientation = v; break;
+        case "multiline":
+          if (v) node.multiline = true; break;
+        case "multiselectable":
+          if (v) node.multiselectable = true; break;
+        case "autocomplete":
+          if (typeof v === "string" && v !== "none") node.autocomplete = v; break;
+        case "modal":
+          if (v) node.modal = true; break;
+        case "keyshortcuts":
+          if (typeof v === "string") node.keyshortcuts = v; break;
+      }
+    }
+
+    const kids: AxNode[] = [];
+    for (const cid of raw.childIds ?? []) {
+      const cn = byId.get(cid);
+      if (!cn) continue;
+      const b = build(cn);
+      if (b) kids.push(b);
+    }
+    if (kids.length) node.children = kids;
+    return node;
+  };
+
+  return build(root);
+}
+
+
+export type AxNode = {
+  role: string;
+  name?: string;
+  value?: string | number;
+  description?: string;
+  keyshortcuts?: string;
+  roledescription?: string;
+  valuetext?: string;
+  disabled?: boolean;
+  expanded?: boolean;
+  focused?: boolean;
+  modal?: boolean;
+  multiline?: boolean;
+  multiselectable?: boolean;
+  readonly?: boolean;
+  required?: boolean;
+  selected?: boolean;
+  checked?: boolean | "mixed";
+  pressed?: boolean | "mixed";
+  level?: number;
+  valuemin?: number;
+  valuemax?: number;
+  autocomplete?: string;
+  haspopup?: string;
+  invalid?: string;
+  orientation?: string;
+  children?: AxNode[];
+};
+
+function truncateAx(node: AxNode, maxDepth: number): AxNode {
+  if (maxDepth < 0 || !node.children || node.children.length === 0) {
+    const { children, ...rest } = node;
+    return maxDepth < 0 ? rest : node;
+  }
+  if (maxDepth === 0) {
+    const { children, ...rest } = node;
+    return { ...rest, children: [{ role: "…", name: `${children.length} hidden child${children.length === 1 ? "" : "ren"}` }] };
+  }
+  return { ...node, children: node.children.map((c) => truncateAx(c, maxDepth - 1)) };
+}
+
+/**
+ * Format an AxNode tree as compact YAML-ish output that's easy to read and
+ * cheap on tokens. Each node is one line:
+ *
+ *   - button "Sign in"
+ *     - img "logo"
+ *
+ * Boolean/value attributes are appended in [brackets].
+ */
+export function renderAxNode(node: AxNode, indent = 0): string {
+  const lines: string[] = [];
+  walk(node, indent, lines);
+  return lines.join("\n");
+}
+
+function walk(node: AxNode, indent: number, lines: string[]): void {
+  const pad = "  ".repeat(indent);
+  const name = node.name ? ` "${node.name.replace(/"/g, '\\"')}"` : "";
+  const attrs = axAttrs(node);
+  const attrStr = attrs.length ? ` [${attrs.join(", ")}]` : "";
+  lines.push(`${pad}- ${node.role}${name}${attrStr}`);
+  if (node.children) for (const c of node.children) walk(c, indent + 1, lines);
+}
+
+function axAttrs(node: AxNode): string[] {
+  const out: string[] = [];
+  if (node.value !== undefined) out.push(`value=${JSON.stringify(node.value)}`);
+  if (node.checked !== undefined) out.push(`checked=${node.checked}`);
+  if (node.pressed !== undefined) out.push(`pressed=${node.pressed}`);
+  if (node.selected) out.push("selected");
+  if (node.disabled) out.push("disabled");
+  if (node.required) out.push("required");
+  if (node.readonly) out.push("readonly");
+  if (node.expanded !== undefined) out.push(`expanded=${node.expanded}`);
+  if (node.focused) out.push("focused");
+  if (node.level !== undefined) out.push(`level=${node.level}`);
+  if (node.invalid) out.push(`invalid=${node.invalid}`);
+  return out;
 }

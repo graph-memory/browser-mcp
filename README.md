@@ -127,6 +127,9 @@ Options:
   --session-ttl <seconds>          Session TTL in seconds (default: 1800)
   --profile-dir <path>             Base directory for browser profiles (default: ~/.browser-mcp/profiles)
   --api-key <key>                  API key for Bearer token authentication
+  --allow-insecure                 Allow binding to non-loopback host without an API key (off by default — server refuses to start)
+  --cors-origin <value>            Allowed CORS Origin: comma list of origins, '*', or 'null' (default)
+  --max-sessions <number>          Hard cap on concurrent MCP sessions (default: 50)
 ```
 
 Example:
@@ -174,24 +177,68 @@ Find text occurrences on the current page. Returns up to `limit` snippets, each 
 
 ### `browser_click`
 
-Click an element. By default matches visible text (`target_type="text"`, preferred). Set `target_type="selector"` to use a CSS selector. Waits for navigation/request-idle after the click.
+Click an element using one of several locator strategies. Playwright auto-waits for the element to be visible, enabled, and stable; the server additionally waits for network idle after the click.
+
+**Strategy priority** (most → least reliable): `role` > `label` > `text` > `placeholder` > `testid` > `selector`. Prefer `role` for buttons/links and `label` for form fields — they survive markup changes.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `target` | string | yes | — | Visible text of the element (e.g. `"Sign in"`), or a CSS selector when `target_type="selector"` |
-| `target_type` | `"text"` \| `"selector"` | no | `"text"` | How to interpret `target` |
+| `target` | string | yes | — | Description of the element (see `target_type`) |
+| `target_type` | `"text"` \| `"role"` \| `"label"` \| `"placeholder"` \| `"testid"` \| `"selector"` | no | `"text"` | Locator strategy |
+| `role` | ARIA role | no | `"button"` when `target_type="role"` | Required for `target_type="role"` |
+| `exact` | boolean | no | `false` | Exact text match vs substring (text/role/label/placeholder) |
 | `tab_id` | string | no | active tab | Tab to act on |
+
+Examples:
+```json
+{ "target": "Sign in", "target_type": "role", "role": "button" }
+{ "target": "Home", "target_type": "role", "role": "link", "exact": true }
+{ "target": "submit-btn", "target_type": "testid" }
+```
 
 ### `browser_type`
 
-Fill a CSS-selected input/textarea with text. If `submit=true`, presses Enter after typing (e.g. to submit a form). Uses fill semantics — existing value is replaced.
+Fill an input/textarea/contenteditable with text. Auto-waits for the field to be actionable before filling. Uses Playwright's fill semantics (existing value is replaced). If `submit=true`, presses Enter after typing.
+
+**Strategy priority** for forms: `label` > `placeholder` > `testid` > `selector`. `label` is the most robust for typical forms.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `selector` | string | yes | — | CSS selector of the input/textarea/contenteditable to fill |
-| `text` | string | yes | — | Text to type. Existing value is replaced |
+| `target` | string | yes* | — | Description of the input (see `target_type`). *For back-compat accepts `selector` instead |
+| `target_type` | `"text"` \| `"role"` \| `"label"` \| `"placeholder"` \| `"testid"` \| `"selector"` | no | `"selector"` | Locator strategy |
+| `role` | ARIA role | no | — | Required for `target_type="role"` (typically `"textbox"`) |
+| `exact` | boolean | no | `false` | Exact match for text/label/placeholder/role |
+| `text` | string | yes | — | Text to type |
 | `submit` | boolean | no | `false` | Press Enter after typing |
 | `tab_id` | string | no | active tab | Tab to act on |
+| `selector` | string | no | — | **Deprecated** alias for `target` (with `target_type="selector"`) |
+
+Examples:
+```json
+{ "target": "Email", "target_type": "label", "text": "user@example.com" }
+{ "target": "Search", "target_type": "placeholder", "text": "query", "submit": true }
+```
+
+### `browser_snapshot`
+
+Return an **accessibility snapshot** of the page — a compact tree of semantic elements (role, name, value, state) pulled from Chrome's accessibility API via CDP. Much more reliable than scraping Markdown for SPAs or form-heavy pages. Pair with `browser_click` using `target_type="role"` or `target_type="label"` for robust interaction without CSS selectors.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `selector` | string | no | — | Scope to subtree rooted at this CSS selector |
+| `max_depth` | integer (0-50) | no | — | Truncate deeper children with a `"N hidden children"` summary |
+| `interesting_only` | boolean | no | `true` | Prune decorative/hidden nodes (Playwright convention) |
+| `format` | `"yaml"` \| `"json"` | no | `"yaml"` | Compact indented tree (default) or raw AXNode JSON |
+| `tab_id` | string | no | active tab | Tab to snapshot |
+
+Sample output (`yaml`):
+```
+- RootWebArea [focused]
+  - heading "Login" [level=1]
+  - textbox "Email" [required]
+  - textbox "Password" [required]
+  - button "Sign in"
+```
 
 ### `browser_scroll`
 
@@ -364,10 +411,50 @@ All environment variables can be overridden by CLI flags (CLI takes priority).
 | `BROWSER_MCP_SESSION_TTL_SEC` | `1800` | `--session-ttl` | Session TTL in seconds |
 | `BROWSER_MCP_PROFILE_DIR` | `~/.browser-mcp/profiles` | `--profile-dir` | Base directory for browser profiles |
 | `BROWSER_MCP_API_KEY` | — | `--api-key` | API key for Bearer token authentication. If set, all requests must include `Authorization: Bearer <key>` header |
+| `BROWSER_MCP_ALLOW_INSECURE` | `0` | `--allow-insecure` | Allow non-loopback bind without an API key. Off by default — server exits with code 2 otherwise |
+| `BROWSER_MCP_CORS_ORIGIN` | `null` | `--cors-origin` | Allowed CORS Origin. Comma-separated exact origins, `*`, or `null` (block all browser origins) |
+| `BROWSER_MCP_MAX_SESSIONS` | `50` | `--max-sessions` | Hard cap on concurrent MCP sessions |
 | `BROWSER_MCP_PROXY` | — | `--proxy` | Proxy server URL (e.g. `http://proxy:8080`, `socks5://proxy:1080`) |
 | `BROWSER_MCP_PROXY_BYPASS` | — | `--proxy-bypass` | Comma-separated list of domains to bypass proxy |
 | `BROWSER_MCP_PROXY_USERNAME` | — | `--proxy-username` | Proxy auth username |
 | `BROWSER_MCP_PROXY_PASSWORD` | — | `--proxy-password` | Proxy auth password |
+
+## Security model
+
+browser-mcp drives a real Chromium on your machine — anyone who reaches `/mcp`
+can visit arbitrary URLs, exfiltrate logged-in session cookies, solve CAPTCHAs
+in your name. The defaults are chosen so this can't happen by accident:
+
+- **Refuse-to-start insecure.** If bound to a non-loopback host (`0.0.0.0`,
+  any LAN IP) AND no API key is set, the server exits with code 2 and a loud
+  error. Override with `--allow-insecure` if you understand the risk.
+- **CSRF defense.** `/mcp` POSTs must carry `Content-Type: application/json`
+  (not a CORS-simple type, so browsers must preflight and we don't answer).
+  If an `Origin` header is present, it must match `BROWSER_MCP_CORS_ORIGIN`
+  (default `null` — only native clients like curl and Claude Code allowed).
+- **Timing-safe auth.** API key comparison uses `crypto.timingSafeEqual` so
+  token guessing doesn't benefit from short-circuit string comparison.
+- **Session cap.** Hard limit on concurrent MCP sessions
+  (`BROWSER_MCP_MAX_SESSIONS`, default 50) prevents spam.
+
+Docker image binds to `0.0.0.0` and **requires** an API key
+(the refuse-to-start check kicks in without one).
+
+## Health endpoint
+
+`GET /health` returns JSON with status, uptime, session/profile counts, and
+a summary of active config. Unauthenticated, safe to probe. Does not reveal
+URLs visited, cookies, or any page content.
+
+```json
+{
+  "status": "ok",
+  "uptime_ms": 123456,
+  "sessions": 2,
+  "profiles": 1,
+  "config": { "host": "127.0.0.1", "port": 7777, "headless": true, "stealth": true, "auth": "on" }
+}
+```
 
 ## How it works
 

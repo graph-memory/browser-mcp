@@ -1,6 +1,6 @@
 import { Command } from "commander";
 
-const pkg = { name: "browser-mcp", version: "0.1.0" };
+const pkg = { name: "browser-mcp", version: "0.2.0" };
 
 const program = new Command()
   .name(pkg.name)
@@ -34,6 +34,9 @@ const program = new Command()
   .option("--javascript", "Enable JavaScript (default)")
   .option("--no-javascript", "Disable JavaScript")
   .option("--api-key <key>", "API key for authentication (Bearer token). If set, all requests must include Authorization header")
+  .option("--allow-insecure", "Allow binding to a non-loopback host without an API key. Off by default — browser-mcp refuses to start in that configuration because /mcp can automate a real browser on behalf of anyone who can reach it.")
+  .option("--cors-origin <value>", "Allowed CORS Origin. Comma-separated exact origins, or '*' to disable origin checking. Defaults to 'null' — only requests without an Origin header (curl, native MCP clients) are allowed.")
+  .option("--max-sessions <number>", "Hard cap on concurrent MCP sessions")
   .parse();
 
 const opts = program.opts();
@@ -96,4 +99,7 @@ export const config = {
   deviceScaleFactor: num(opts.deviceScaleFactor, process.env.BROWSER_MCP_DEVICE_SCALE_FACTOR, 1),
   mobile: bool(opts.mobile, process.env.BROWSER_MCP_MOBILE, false),
   apiKey: str(opts.apiKey, process.env.BROWSER_MCP_API_KEY, ""),
+  allowInsecure: bool(opts.allowInsecure, process.env.BROWSER_MCP_ALLOW_INSECURE, false),
+  corsOrigin: str(opts.corsOrigin, process.env.BROWSER_MCP_CORS_ORIGIN, "null"),
+  maxSessions: num(opts.maxSessions, process.env.BROWSER_MCP_MAX_SESSIONS, 50),
 } as const;

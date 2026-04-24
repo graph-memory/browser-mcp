@@ -4,7 +4,22 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { config } from "./config.js";
+import { safeStringEq, hostIsLoopback } from "./lib/auth.js";
 import { BrowserManager, validateProfileName } from "./browser.js";
+
+// Refuse to start insecure-by-default on a non-loopback bind.
+if (!hostIsLoopback(config.host) && !config.apiKey && !config.allowInsecure) {
+  console.error(
+    "\n[browser-mcp] REFUSING TO START\n" +
+    `  host is bound to '${config.host}' (not loopback) and no API key is set.\n` +
+    `  /mcp drives a real browser — exposing it without auth is an RCE-by-proxy risk.\n` +
+    "  Fix one of:\n" +
+    "    1. set BROWSER_MCP_API_KEY to a random string (recommended)\n" +
+    "    2. bind to 127.0.0.1 (BROWSER_MCP_HOST=127.0.0.1)\n" +
+    "    3. pass --allow-insecure to accept the risk explicitly\n",
+  );
+  process.exit(2);
+}
 import { openSchema, makeOpenHandler } from "./tools/open.js";
 import { readSchema, makeReadHandler } from "./tools/read.js";
 import {
@@ -28,6 +43,7 @@ import {
   screenshotSchema, makeScreenshotHandler,
 } from "./tools/visual.js";
 import { configureSchema, makeConfigureHandler } from "./tools/configure.js";
+import { snapshotSchema, makeSnapshotHandler } from "./tools/snapshot.js";
 import { logInfo, logError } from "./log.js";
 
 type ToolResult = {
@@ -58,7 +74,7 @@ function withLog<A>(name: string, fn: (args: A) => Promise<ToolResult>) {
 }
 
 function buildServer(browser: BrowserManager): McpServer {
-  const server = new McpServer({ name: "browser-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "browser-mcp", version: "0.2.0" });
 
   server.registerTool("browser_open", {
     description:
@@ -89,13 +105,20 @@ function buildServer(browser: BrowserManager): McpServer {
 
   server.registerTool("browser_click", {
     description:
-      "Click an element. By default matches visible text (target_type=\"text\", preferred). Set target_type=\"selector\" to use a CSS selector. Waits for navigation/request-idle after the click.",
+      "Click an element. target_type picks the locator strategy (most reliable first): " +
+      "`role` (e.g. target=\"Sign in\" + role=\"button\"), `label` (form fields by <label>), " +
+      "`text` (visible text, default), `placeholder`, `testid`, `selector` (CSS escape hatch). " +
+      "Playwright auto-waits for the element to be visible/enabled/stable; we also wait for " +
+      "network idle after the click.",
     inputSchema: clickSchema,
   }, withLog("browser_click", makeClickHandler(browser)));
 
   server.registerTool("browser_type", {
     description:
-      "Fill a CSS-selected input/textarea with text. If submit=true, presses Enter after typing (e.g. to submit a form).",
+      "Fill an input/textarea/contenteditable with text. target_type picks the locator strategy; " +
+      "default is `selector` (CSS) for compatibility, but `label` is usually more robust for forms " +
+      "(e.g. target=\"Email\"). If submit=true, presses Enter after typing. Auto-waits for the " +
+      "field to be actionable before filling.",
     inputSchema: typeSchema,
   }, withLog("browser_type", makeTypeHandler(browser)));
 
@@ -149,6 +172,17 @@ function buildServer(browser: BrowserManager): McpServer {
       "Take a PNG screenshot of the current tab. Default: viewport. full_page=true captures the entire scrollable page.",
     inputSchema: screenshotSchema,
   }, withLog("browser_screenshot", makeScreenshotHandler(browser)));
+
+  server.registerTool("browser_snapshot", {
+    description:
+      "Return an accessibility snapshot of the page — a compact tree of semantic elements " +
+      "(role, name, value, state) based on the platform a11y API. More reliable than Markdown " +
+      "for interacting with SPAs, form-heavy pages, or custom components without stable selectors. " +
+      "Pair with browser_click using target_type=\"role\" or target_type=\"label\" for robust " +
+      "interaction. Supports `selector` to scope to a subtree, `max_depth` to cut tokens, and " +
+      "`format` ('yaml' compact by default, 'json' raw).",
+    inputSchema: snapshotSchema,
+  }, withLog("browser_snapshot", makeSnapshotHandler(browser)));
 
   server.registerTool("browser_configure", {
     description:
@@ -267,13 +301,7 @@ function getBrowserForProfile(profileName: string): BrowserManager {
 async function handleMcp(req: IncomingMessage, res: ServerResponse) {
   const parsed = parseProfileFromUrl(req.url ?? "");
   if (!parsed.valid) {
-    res.statusCode = 400;
-    res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({
-      jsonrpc: "2.0",
-      error: { code: -32000, message: parsed.error ?? "Invalid request" },
-      id: null,
-    }));
+    writeJsonError(res, 400, parsed.error ?? "Invalid request");
     return;
   }
 
@@ -285,13 +313,12 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse) {
 
   if (!session) {
     if (req.method !== "POST" || !isInitializeRequest(body)) {
-      res.statusCode = 400;
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: { code: -32000, message: "No valid session. Send initialize first." },
-        id: null,
-      }));
+      writeJsonError(res, 400, "No valid session. Send initialize first.");
+      return;
+    }
+
+    if (sessions.size >= config.maxSessions) {
+      writeJsonError(res, 503, `session cap reached (${config.maxSessions})`);
       return;
     }
 
@@ -325,38 +352,94 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse) {
   await session.transport.handleRequest(req, res, body);
 }
 
-function checkAuth(req: IncomingMessage, res: ServerResponse): boolean {
-  if (!config.apiKey) return true;
-  const auth = req.headers["authorization"] ?? "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (token === config.apiKey) return true;
-  res.statusCode = 401;
+function writeJsonError(res: ServerResponse, status: number, message: string) {
+  res.statusCode = status;
   res.setHeader("content-type", "application/json");
   res.end(JSON.stringify({
     jsonrpc: "2.0",
-    error: { code: -32000, message: "Unauthorized — invalid or missing API key" },
+    error: { code: status === 401 ? -32000 : status === 503 ? -32001 : -32000, message },
     id: null,
   }));
+}
+
+function checkAuth(req: IncomingMessage, res: ServerResponse): boolean {
+  if (!config.apiKey) return true;
+  const auth = String(req.headers["authorization"] ?? "");
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (token && safeStringEq(token, config.apiKey)) return true;
+  logInfo(`auth failed from ${req.socket.remoteAddress ?? "?"}`);
+  writeJsonError(res, 401, "Unauthorized — invalid or missing API key");
   return false;
 }
 
+// CSRF: browsers can't send application/json cross-origin without a preflight
+// (we don't answer OPTIONS), and we reject unknown Origin headers.
+function checkOrigin(req: IncomingMessage): { ok: true } | { ok: false; reason: string } {
+  const origin = (req.headers["origin"] as string | undefined) ?? "";
+  if (!origin) return { ok: true };
+  if (config.corsOrigin === "*") return { ok: true };
+  const allowed = config.corsOrigin.split(",").map(s => s.trim()).filter(Boolean);
+  if (allowed.includes(origin)) return { ok: true };
+  return { ok: false, reason: `origin '${origin}' not allowed` };
+}
+
+function checkContentType(req: IncomingMessage): { ok: true } | { ok: false; reason: string } {
+  if (req.method !== "POST") return { ok: true };
+  const ct = String(req.headers["content-type"] ?? "").toLowerCase();
+  if (!ct.startsWith("application/json")) {
+    return { ok: false, reason: `content-type must be application/json, got '${ct || "<missing>"}'` };
+  }
+  return { ok: true };
+}
+
+const startedAt = Date.now();
+
+function handleHealth(_req: IncomingMessage, res: ServerResponse): void {
+  const profiles = new Set<string>();
+  for (const s of sessions.values()) profiles.add(s.profileName);
+  const body = {
+    status: "ok",
+    uptime_ms: Date.now() - startedAt,
+    sessions: sessions.size,
+    profiles: profiles.size,
+    config: {
+      host: config.host,
+      port: config.port,
+      headless: config.headless,
+      stealth: config.stealth,
+      auth: config.apiKey ? "on" : "off",
+    },
+  };
+  res.statusCode = 200;
+  res.setHeader("content-type", "application/json");
+  res.end(JSON.stringify(body));
+}
+
 const httpServer = createServer((req, res) => {
-  if (!req.url?.startsWith("/mcp")) {
-    res.statusCode = 404;
-    res.end("Not found");
+  if (req.url === "/health" && (req.method === "GET" || req.method === "HEAD")) {
+    handleHealth(req, res);
     return;
   }
+  if (!req.url?.startsWith("/mcp")) {
+    res.statusCode = 404;
+    res.setHeader("content-type", "text/plain");
+    res.end("Not found\n");
+    return;
+  }
+
+  const origin = checkOrigin(req);
+  if (!origin.ok) { writeJsonError(res, 403, origin.reason); return; }
+
+  const ct = checkContentType(req);
+  if (!ct.ok) { writeJsonError(res, 415, ct.reason); return; }
+
   if (!checkAuth(req, res)) return;
+
   handleMcp(req, res).catch((err) => {
-    console.error("MCP handler error:", err);
+    logError("MCP handler", err);
     if (!res.headersSent) {
-      res.statusCode = (err as { statusCode?: number }).statusCode ?? 500;
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({
-        jsonrpc: "2.0",
-        error: { code: -32603, message: String(err?.message ?? err) },
-        id: null,
-      }));
+      const status = (err as { statusCode?: number }).statusCode ?? 500;
+      writeJsonError(res, status, String((err as Error)?.message ?? err));
     }
   });
 });
@@ -380,11 +463,10 @@ process.on("SIGTERM", shutdown);
 
 httpServer.listen(config.port, config.host, () => {
   console.error(`browser-mcp listening on http://${config.host}:${config.port}/mcp`);
+  console.error(`  health       → http://${config.host}:${config.port}/health`);
   console.error(`  /mcp         → default profile`);
   console.error(`  /mcp/<name>  → named profile (e.g. /mcp/test1)`);
-  if (config.apiKey) {
-    console.error(`  auth         → Bearer token required`);
-  } else {
-    console.error(`  auth         → disabled (set --api-key or BROWSER_MCP_API_KEY to enable)`);
-  }
+  console.error(`  auth         → ${config.apiKey ? "Bearer token required" : "DISABLED (loopback only)"}`);
+  console.error(`  cors_origin  → ${config.corsOrigin}`);
+  console.error(`  max_sessions → ${config.maxSessions}`);
 });
