@@ -1094,6 +1094,17 @@ decision as network intercept.
 specifics outside the Dockerfile, so Windows should work — it's just not
 validated by CI.
 
+**`npm install` shows `rimraf@3` / `glob@7` / `inflight@1` deprecation
+warnings. Should I worry?** No. They come from
+`puppeteer-extra-plugin-stealth` → `…user-data-dir@2.4.1` → `rimraf@3` →
+`glob@7` → `inflight@1`. Upstream has been quiet for over a year, and
+`…user-data-dir` pins `rimraf@^3` via the removed callback API — an
+`overrides` bump to `rimraf@4+` would break the plugin the moment its
+cleanup code fires. That cleanup code handles the plugin's own temporary
+profile dir; browser-mcp passes its own persistent `profileDir` to
+`launchPersistentContext`, so the path that invokes rimraf isn't reached.
+No runtime impact, only install-time warnings.
+
 ---
 
 ## License
