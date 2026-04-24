@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Dashboard</title></head>
+<body>
+  <header><h1>DashCorp</h1></header>
+  <nav>
+    <a href="#a">Home</a>
+    <a href="#b">Reports</a>
+    <a href="#c">Settings</a>
+    <a href="#d">Profile</a>
+    <a href="#e">Sign out</a>
+  </nav>
+  <aside>
+    <ul>
+      <li>Alpha</li>
+      <li>Beta</li>
+      <li>Gamma</li>
+    </ul>
+  </aside>
+  <main>
+    <h2>Welcome back, user42</h2>
+    <section>
+      <p>Today's metric: <b>1,234</b></p>
+      <p>System health: <span>OK</span></p>
+      <button id="refresh">Refresh</button>
+    </section>
+    <section>
+      <h3>Items</h3>
+      <ul id="items">
+        <li>buy milk</li>
+        <li>walk dog</li>
+      </ul>
+      <button id="add">Add</button>
+    </section>
+  </main>
+  <footer>Copyright 2025 / Terms / Privacy</footer>
+  <script>
+    document.getElementById("add").addEventListener("click", () => {
+      const li = document.createElement("li");
+      li.textContent = "pay bills";
+      document.getElementById("items").appendChild(li);
+    });
+  </script>
+</body>
+</html>

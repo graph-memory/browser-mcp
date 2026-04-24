@@ -36,28 +36,46 @@ const program = new Command()
   .option("--api-key <key>", "API key for authentication (Bearer token). If set, all requests must include Authorization header")
   .option("--allow-insecure", "Allow binding to a non-loopback host without an API key. Off by default — browser-mcp refuses to start in that configuration because /mcp can automate a real browser on behalf of anyone who can reach it.")
   .option("--cors-origin <value>", "Allowed CORS Origin. Comma-separated exact origins, or '*' to disable origin checking. Defaults to 'null' — only requests without an Origin header (curl, native MCP clients) are allowed.")
-  .option("--max-sessions <number>", "Hard cap on concurrent MCP sessions")
-  .parse();
+  .option("--max-sessions <number>", "Hard cap on concurrent MCP sessions");
+
+// Under vitest, process.argv contains the runner's flags (--run, --reporter, etc.)
+// which commander would reject. Tests exercise config via env vars anyway, so we
+// skip CLI parsing in that environment. In production the CLI always parses.
+if (!process.env.VITEST) program.parse();
 
 const opts = program.opts();
 
-function str(cli: string | undefined, env: string | undefined, fallback: string): string {
+/** Pick the first defined string among CLI arg, env var, fallback. Exported for tests. */
+export function str(cli: string | undefined, env: string | undefined, fallback: string): string {
   return cli ?? env ?? fallback;
 }
 
-function num(cli: string | undefined, env: string | undefined, fallback: number): number {
+/**
+ * Pick the first parsable number among CLI arg, env var, fallback. Exported
+ * for tests. Both CLI and env are treated as strings (commander always gives
+ * strings); NaN inputs fall through to the next source.
+ */
+export function num(cli: string | undefined, env: string | undefined, fallback: number): number {
   if (cli !== undefined) { const n = Number(cli); if (!Number.isNaN(n)) return n; }
   if (env !== undefined) { const n = Number(env); if (!Number.isNaN(n)) return n; }
   return fallback;
 }
 
-function bool(cli: boolean | undefined, env: string | undefined, fallback: boolean): boolean {
+/**
+ * Boolean from CLI (already parsed by commander), env ("0" = false, anything
+ * else = true), or fallback. Exported for tests.
+ */
+export function bool(cli: boolean | undefined, env: string | undefined, fallback: boolean): boolean {
   if (cli !== undefined) return cli;
   if (env !== undefined) return env !== "0";
   return fallback;
 }
 
-function parseViewport(raw: string | undefined): { width: number; height: number } | undefined {
+/**
+ * Parse a WxH viewport string (e.g. "1920x1080"). Returns undefined for
+ * missing or malformed input. Exported for tests.
+ */
+export function parseViewport(raw: string | undefined): { width: number; height: number } | undefined {
   if (!raw) return undefined;
   const m = raw.match(/^(\d+)x(\d+)$/i);
   if (!m) return undefined;

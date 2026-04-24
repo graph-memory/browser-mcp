@@ -693,10 +693,10 @@ export function resolveLocator(
 
 // --- Accessibility snapshot types & helpers ---
 
-/** Raw CDP AXNode shape. Not all fields are used. */
-type AxCdpValue = { type: string; value?: unknown };
-type AxCdpProp = { name: string; value: AxCdpValue };
-type AxCdpNode = {
+/** Raw CDP AXNode shape. Not all fields are used. Exported for tests. */
+export type AxCdpValue = { type: string; value?: unknown };
+export type AxCdpProp = { name: string; value: AxCdpValue };
+export type AxCdpNode = {
   nodeId: string;
   parentId?: string;
   childIds?: string[];
@@ -715,7 +715,7 @@ type AxCdpNode = {
 // set, and collapse single-child StaticText chains.
 const ALWAYS_NOISY_ROLES = new Set(["InlineTextBox"]);
 
-function cdpAxToTree(nodes: AxCdpNode[], interestingOnly: boolean): AxNode | null {
+export function cdpAxToTree(nodes: AxCdpNode[], interestingOnly: boolean): AxNode | null {
   const byId = new Map(nodes.map((n) => [n.nodeId, n]));
   // Find root: a node whose parent isn't in the map, or with no parentId.
   const root = nodes.find((n) => !n.parentId || !byId.has(n.parentId));
@@ -816,7 +816,7 @@ function cdpAxToTree(nodes: AxCdpNode[], interestingOnly: boolean): AxNode | nul
  *   2. If a node's `name` already matches a single StaticText child, drop the
  *      child — it's noise for LLM consumers.
  */
-function collapseRedundantText(node: AxNode): AxNode {
+export function collapseRedundantText(node: AxNode): AxNode {
   if (!node.children || node.children.length === 0) return node;
   let kids = node.children.map(collapseRedundantText);
 
@@ -950,12 +950,13 @@ export function filterCompact(node: AxNode): AxNode | null {
 }
 
 /**
- * Path-based signature for a node: role + name + value. Used to match nodes
- * across snapshots when diffing. Ignores ordering among siblings that share
- * the same signature.
+ * Path-based signature for a node: role + name. Used to match nodes across
+ * snapshots when diffing. Value is deliberately excluded so that textbox
+ * edits (value "" → "foo") register as `changed` rather than added+removed.
+ * Siblings that share the same signature lose ordering information.
  */
 function signatureOf(node: AxNode): string {
-  return `${node.role}|${node.name ?? ""}|${node.value ?? ""}`;
+  return `${node.role}|${node.name ?? ""}`;
 }
 
 export type SnapshotDiff = {

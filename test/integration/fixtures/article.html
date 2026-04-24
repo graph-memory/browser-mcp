@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sample Post</title>
+  <style>body { font-family: sans-serif; } nav { background:#ddd; padding:8px; }</style>
+  <script>console.log("boot");</script>
+</head>
+<body>
+  <header>Corp Header</header>
+  <nav>
+    <a href="#home">Home</a> |
+    <a href="#about">About</a> |
+    <a href="#contact">Contact</a>
+  </nav>
+  <aside>Ad slot — support us!</aside>
+  <main>
+    <article>
+      <h1>Understanding Accessibility Trees</h1>
+      <p>Accessibility trees are how screen readers see a page. They contain a structured view of the DOM with semantic roles like button, link, textbox, and heading.</p>
+      <p>When automating a browser for an AI agent, the accessibility tree is often a better anchor than CSS selectors because it is stable across design changes.</p>
+      <p>This post walks through the basics of the tree and how to query it efficiently from a test runner.</p>
+    </article>
+  </main>
+  <footer>© Corp — All rights reserved — Terms — Privacy</footer>
+  <div role="navigation">Secondary nav with more links</div>
+  <div aria-hidden="true">hidden decorative</div>
+</body>
+</html>

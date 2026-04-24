@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Download page</title></head>
+<body>
+  <h1>Download</h1>
+  <a id="dl" href="data:text/plain;charset=utf-8,Hello%20from%20browser-mcp%20test" download="hello.txt">Get file</a>
+  <button id="gen" type="button">Generate</button>
+  <input type="file" id="up" name="up" aria-label="Upload" multiple>
+  <span id="upstatus"></span>
+  <script>
+    document.getElementById("gen").addEventListener("click", () => {
+      const blob = new Blob(["synthesized\n"], { type: "text/plain" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "synthesized.txt";
+      document.body.appendChild(a);
+      a.click();
+    });
+    document.getElementById("up").addEventListener("change", (e) => {
+      const f = e.target.files[0];
+      document.getElementById("upstatus").textContent = f ? (f.name + ":" + f.size) : "none";
+    });
+  </script>
+</body></html>
