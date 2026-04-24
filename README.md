@@ -385,12 +385,70 @@ Open a URL in a **visible** (non-headless) Chrome window for manual interaction:
 
 ### `browser_screenshot`
 
-Take a PNG screenshot of the current tab. Default: viewport only. `full_page=true` captures the entire scrollable page.
+Take a PNG screenshot of the current tab. Default: viewport only. `full_page=true` captures the entire scrollable page. Pass `selector` to capture a specific element (scrolled into view first).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `full_page` | boolean | no | `false` | `false`: viewport only. `true`: entire scrollable page |
+| `full_page` | boolean | no | `false` | `false`: viewport only. `true`: entire scrollable page. Ignored if `selector` is set |
+| `selector` | string | no | — | Capture only this CSS element. Element is scrolled into view automatically |
 | `tab_id` | string | no | active tab | Tab to capture |
+
+### `browser_upload`
+
+Upload files to an `<input type="file">`. Paths are validated to exist before the call. For `<input multiple>`, pass multiple files; otherwise pass one.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `target` | string | yes | — | The file input element |
+| `target_type` | `"selector"` \| `"label"` \| `"testid"` | no | `"selector"` | `label` is usually cleanest for forms |
+| `files` | array of paths (1-32) | yes | — | Absolute or relative paths. Each validated to be a regular file |
+| `tab_id` | string | no | active tab | Tab to act on |
+
+### `browser_download_wait`
+
+Trigger a download (via click or navigation) and capture the resulting file to disk.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | `"click"` \| `"navigate"` | no | `"click"` | How to trigger |
+| `target` | string | iff `action="click"` | — | Button/link that starts the download |
+| `target_type` | same as browser_click | no | `"text"` | Locator strategy |
+| `role` | ARIA role | no | — | For `target_type="role"` |
+| `url` | URL | iff `action="navigate"` | — | Direct download URL |
+| `save_to` | string | yes | — | Path to save the file. If it ends with `/` or is a directory, the server-suggested filename is used |
+| `timeout_ms` | integer (1-600000) | no | `60000` | Total wait for download start+complete |
+| `tab_id` | string | no | active tab | Tab to act on |
+
+### `browser_cookies`
+
+Read, write, or clear cookies in the current browser profile.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | `"get"` \| `"set"` \| `"clear"` | yes | — | Operation |
+| `urls` | array of URLs | no | — | For `get`: limit to these URLs. Omit for all cookies |
+| `cookies` | array of cookie objects | iff `action="set"` | — | Each needs either (domain+path) or a single url. Fields: `name`, `value`, `domain`, `path`, `url`, `expires`, `httpOnly`, `secure`, `sameSite` |
+
+### `browser_network_log`
+
+Inspect recent network requests. A ring buffer of the last **500 requests** is kept per profile, across all tabs. Every request (including ones from cache, failed, or still in flight) is recorded.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `tab_id` | string | no | all tabs | Only entries from this tab |
+| `limit` | integer (1-500) | no | `100` | Max entries (most recent last) |
+| `url_regex` | string (regex) | no | — | Only URLs matching |
+| `method` | HTTP method | no | — | Filter by method |
+| `failed_only` | boolean | no | `false` | Only net errors (ERR_*, blocked) |
+| `min_status` | integer (100-599) | no | — | Only responses with status ≥ this (use 400 to see errors) |
+
+Output format:
+```
+── 3 entries (of 47 in ring) ──
+14:16:32.170  200         GET     https://api/v1/users       [xhr, 85ms]
+14:16:32.220  404         GET     https://api/v1/missing     [xhr, 12ms]
+14:16:32.300  FAIL(...)   POST    https://third-party/track  [fetch, 2013ms]
+```
 
 ### `browser_configure`
 

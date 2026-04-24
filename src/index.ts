@@ -47,6 +47,10 @@ import { snapshotSchema, makeSnapshotHandler } from "./tools/snapshot.js";
 import { expectSchema, makeExpectHandler } from "./tools/expect.js";
 import { permissionsSchema, makePermissionsHandler } from "./tools/permissions.js";
 import { saveSchema, makeSaveHandler } from "./tools/save.js";
+import { uploadSchema, makeUploadHandler } from "./tools/upload.js";
+import { downloadSchema, makeDownloadHandler } from "./tools/download.js";
+import { cookiesSchema, makeCookiesHandler } from "./tools/cookies.js";
+import { networkSchema, makeNetworkHandler } from "./tools/network.js";
 import { logInfo, logError } from "./log.js";
 
 type ToolResult = {
@@ -213,6 +217,39 @@ function buildServer(browser: BrowserManager): McpServer {
       "or 'html' (raw page HTML). Parent directories are created automatically.",
     inputSchema: saveSchema,
   }, withLog("browser_save", makeSaveHandler(browser)));
+
+  server.registerTool("browser_upload", {
+    description:
+      "Upload one or more files to an <input type=\"file\"> element. Paths are validated to " +
+      "exist before the call is made. For <input multiple>, pass several files; otherwise one. " +
+      "Locator strategies: selector (CSS), label (<label>-associated), testid (data-testid).",
+    inputSchema: uploadSchema,
+  }, withLog("browser_upload", makeUploadHandler(browser)));
+
+  server.registerTool("browser_download_wait", {
+    description:
+      "Trigger a download and capture the resulting file. action='click' clicks a button/link; " +
+      "action='navigate' sends the tab to a direct download URL. The file is saved to `save_to`; " +
+      "if that ends with '/' or is an existing directory, the server-suggested filename is used.",
+    inputSchema: downloadSchema,
+  }, withLog("browser_download_wait", makeDownloadHandler(browser)));
+
+  server.registerTool("browser_cookies", {
+    description:
+      "Read, write, or clear cookies in the current browser profile. action='get' returns a list " +
+      "(optionally scoped to URLs). action='set' adds/updates cookies from the `cookies` array — " +
+      "each entry needs either (domain+path) or a single url. action='clear' wipes all cookies.",
+    inputSchema: cookiesSchema,
+  }, withLog("browser_cookies", makeCookiesHandler(browser)));
+
+  server.registerTool("browser_network_log", {
+    description:
+      "Inspect recent network requests (ring buffer of last 500 across all tabs in the profile). " +
+      "Filter by tab_id, URL regex, HTTP method, min_status (e.g. 400 for errors only), or " +
+      "failed_only. Each entry shows time, status, method, URL, resource type, and duration. " +
+      "Useful to debug SPA behaviour: what API calls fired, what failed, what returned 4xx/5xx.",
+    inputSchema: networkSchema,
+  }, withLog("browser_network_log", makeNetworkHandler(browser)));
 
   server.registerTool("browser_configure", {
     description:

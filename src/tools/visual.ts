@@ -24,18 +24,30 @@ export const screenshotSchema = {
   full_page: z
     .boolean()
     .default(false)
-    .describe("false: viewport only (1280x900). true: the entire scrollable page."),
+    .describe("false: viewport only (1280x900). true: the entire scrollable page. Ignored if `selector` is set."),
+  selector: z
+    .string()
+    .max(2_048)
+    .optional()
+    .describe(
+      "If set, capture only this element (CSS selector). Takes precedence over full_page. " +
+      "Element is scrolled into view automatically. Returns an error if not found.",
+    ),
   tab_id: z.string().optional().describe("Tab to capture; defaults to the active tab"),
 };
 export function makeScreenshotHandler(browser: BrowserManager) {
   return async ({
     full_page,
+    selector,
     tab_id,
   }: {
     full_page: boolean;
+    selector?: string;
     tab_id?: string;
   }) => {
-    const png = await browser.screenshot(full_page, tab_id);
+    const png = selector
+      ? await browser.elementScreenshot(selector, tab_id)
+      : await browser.screenshot(full_page, tab_id);
     return {
       content: [
         {

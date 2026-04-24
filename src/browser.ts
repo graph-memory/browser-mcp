@@ -25,11 +25,29 @@ export function validateProfileName(name: string): string {
 
 export type TabInfo = { tab_id: string; title: string; url: string; status?: number };
 
+export type NetLogEntry = {
+  ts: number;
+  tab_id: string;
+  method: string;
+  url: string;
+  resource_type: string;
+  status?: number;
+  duration_ms?: number;
+  from_cache?: boolean;
+  failed?: string;
+};
+
+const NET_RING_CAP = 500;
+
 export class BrowserManager {
   private context: BrowserContext | null = null;
   private tabs = new Map<string, Page>();
   private pageToId = new Map<Page, string>();
   private lastUsed = new Map<string, number>();
+  private netLog: NetLogEntry[] = [];
+  private netLogHead = 0;          // next insert index (ring)
+  private netLogSize = 0;          // current length (<= NET_RING_CAP)
+  private reqStart = new WeakMap<object, { ts: number; tab_id: string }>();
   private currentTabId: string | null = null;
   private headless: boolean;
   private sweepTimer: NodeJS.Timeout | null = null;
@@ -112,6 +130,48 @@ export class BrowserManager {
     this.pageToId.set(page, id);
     this.lastUsed.set(id, Date.now());
     if (setActive) this.currentTabId = id;
+
+    // Network capture hooks. Entries are pushed into a ring buffer capped at
+    // NET_RING_CAP to bound memory on chatty pages. Failed and cached
+    // responses are included.
+    page.on("request", (req) => {
+      this.reqStart.set(req as unknown as object, { ts: Date.now(), tab_id: id });
+    });
+    page.on("requestfinished", async (req) => {
+      try {
+        const meta = this.reqStart.get(req as unknown as object);
+        this.reqStart.delete(req as unknown as object);
+        const resp = await req.response();
+        const timing = req.timing();
+        const duration = timing && timing.responseEnd >= 0
+          ? Math.round(timing.responseEnd)
+          : meta ? Date.now() - meta.ts : undefined;
+        this.pushNet({
+          ts: meta?.ts ?? Date.now(),
+          tab_id: id,
+          method: req.method(),
+          url: req.url(),
+          resource_type: req.resourceType(),
+          ...(resp && { status: resp.status() }),
+          ...(duration !== undefined && { duration_ms: duration }),
+          ...(resp?.fromServiceWorker?.() && { from_cache: true }),
+        });
+      } catch { /* ignore */ }
+    });
+    page.on("requestfailed", (req) => {
+      const meta = this.reqStart.get(req as unknown as object);
+      this.reqStart.delete(req as unknown as object);
+      this.pushNet({
+        ts: meta?.ts ?? Date.now(),
+        tab_id: id,
+        method: req.method(),
+        url: req.url(),
+        resource_type: req.resourceType(),
+        failed: req.failure()?.errorText ?? "failed",
+        duration_ms: meta ? Date.now() - meta.ts : undefined,
+      });
+    });
+
     page.on("close", () => {
       this.tabs.delete(id);
       this.pageToId.delete(page);
@@ -122,6 +182,51 @@ export class BrowserManager {
       }
     });
     return id;
+  }
+
+  private pushNet(e: NetLogEntry): void {
+    if (this.netLogSize < NET_RING_CAP) {
+      this.netLog.push(e);
+      this.netLogSize++;
+    } else {
+      this.netLog[this.netLogHead] = e;
+    }
+    this.netLogHead = (this.netLogHead + 1) % NET_RING_CAP;
+  }
+
+  /** Read network log entries in chronological order, optionally filtered. */
+  readNetLog(opts: {
+    tabId?: string;
+    limit?: number;
+    urlRegex?: string;
+    method?: string;
+    failedOnly?: boolean;
+    minStatus?: number;
+  }): { entries: NetLogEntry[]; total: number } {
+    // Reconstruct chronological order from the ring buffer.
+    const ordered: NetLogEntry[] = [];
+    if (this.netLogSize < NET_RING_CAP) {
+      ordered.push(...this.netLog);
+    } else {
+      for (let i = 0; i < NET_RING_CAP; i++) {
+        ordered.push(this.netLog[(this.netLogHead + i) % NET_RING_CAP]);
+      }
+    }
+    let re: RegExp | undefined;
+    if (opts.urlRegex) re = new RegExp(opts.urlRegex);
+    const filtered = ordered.filter((e) => {
+      if (opts.tabId && e.tab_id !== opts.tabId) return false;
+      if (opts.method && e.method.toUpperCase() !== opts.method.toUpperCase()) return false;
+      if (opts.failedOnly && !e.failed) return false;
+      if (opts.minStatus !== undefined && (e.status ?? 0) < opts.minStatus) return false;
+      if (re && !re.test(e.url)) return false;
+      return true;
+    });
+    const limit = opts.limit ?? 100;
+    return {
+      entries: filtered.slice(-limit),
+      total: this.netLogSize,
+    };
   }
 
   private startSweeper(): void {
@@ -394,6 +499,13 @@ export class BrowserManager {
   async screenshot(fullPage: boolean, tabId?: string): Promise<Buffer> {
     const page = this.getPage(tabId);
     return await page.screenshot({ fullPage, type: "png" });
+  }
+
+  async elementScreenshot(selector: string, tabId?: string): Promise<Buffer> {
+    const page = this.getPage(tabId);
+    const loc = page.locator(selector).first();
+    await loc.scrollIntoViewIfNeeded({ timeout: 5_000 });
+    return await loc.screenshot({ type: "png" });
   }
 
   /** Public accessor for BrowserContext; used by permission / network tools. */
