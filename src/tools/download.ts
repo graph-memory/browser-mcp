@@ -1,8 +1,10 @@
 import { z } from "zod";
-import { resolve as resolvePath, dirname } from "node:path";
+import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { BrowserManager, LocatorType } from "../browser.js";
 import { resolveLocator } from "../browser.js";
+import { assertNavigableUrl } from "../lib/url-safety.js";
+import { resolveWritePath } from "../lib/path-sandbox.js";
 
 const LOCATOR_TYPES = ["text", "role", "label", "placeholder", "testid", "selector"] as const;
 
@@ -51,17 +53,24 @@ export function makeDownloadHandler(browser: BrowserManager) {
           await loc.click({ timeout: 10_000 });
         } else {
           if (!args.url) throw new Error("url required for action='navigate'");
+          assertNavigableUrl(args.url);
           // Don't use goto — downloads would never resolve the navigation.
           await page.evaluate((u) => { window.location.href = u; }, args.url);
         }
       })(),
     ]);
 
-    let targetPath = resolvePath(args.save_to);
+    // Sandbox the write path. If save_to ends with '/' use it as the sandbox
+    // dir and let the suggested filename land there; otherwise save_to is
+    // the full filename (resolved against the download sandbox unless the
+    // any-write opt-in is set).
     const endsAsDir = args.save_to.endsWith("/") || args.save_to.endsWith("\\");
+    let targetPath: string;
     if (endsAsDir) {
-      const suggested = download.suggestedFilename();
-      targetPath = resolvePath(args.save_to, suggested || "download");
+      const suggested = download.suggestedFilename() || "download";
+      targetPath = resolveWritePath(`${args.save_to}${suggested}`, browser.profileName);
+    } else {
+      targetPath = resolveWritePath(args.save_to, browser.profileName);
     }
     try { mkdirSync(dirname(targetPath), { recursive: true }); } catch { /* ignore */ }
 

@@ -46,9 +46,47 @@ type ToolResult = {
   >;
 };
 
+/**
+ * Shape-preserving arg redaction for log lines. Tool args are JSON-stringified
+ * by logInfo and can carry passwords (browser_type.text), session cookies
+ * (browser_cookies.cookies[].value), full JS expressions, and absolute
+ * filesystem paths. Keep the shape (so "what was called" stays debuggable)
+ * but blank out the values.
+ *
+ * Exported for tests.
+ */
+export function redactToolArgs(name: string, args: unknown): unknown {
+  if (!args || typeof args !== "object") return args;
+  const a = args as Record<string, unknown>;
+  switch (name) {
+    case "browser_type":
+      return "text" in a ? { ...a, text: "«redacted»" } : a;
+    case "browser_cookies":
+      if (Array.isArray(a.cookies)) {
+        return {
+          ...a,
+          cookies: a.cookies.map((c) =>
+            c && typeof c === "object" ? { ...(c as Record<string, unknown>), value: "«redacted»" } : c,
+          ),
+        };
+      }
+      return a;
+    case "browser_evaluate":
+      return "expression" in a ? { ...a, expression: `«redacted ${String(a.expression).length}ch»` } : a;
+    case "browser_save":
+      return "path" in a ? { ...a, path: "«redacted»" } : a;
+    case "browser_upload":
+      return Array.isArray(a.files) ? { ...a, files: `«${a.files.length} files»` } : a;
+    case "browser_download_wait":
+      return "save_to" in a ? { ...a, save_to: "«redacted»" } : a;
+    default:
+      return a;
+  }
+}
+
 function withLog<A>(name: string, fn: (args: A) => Promise<ToolResult>) {
   return async (args: A): Promise<ToolResult> => {
-    logInfo(`→ ${name}`, args);
+    logInfo(`→ ${name}`, redactToolArgs(name, args));
     const t0 = Date.now();
     try {
       const out = await fn(args);
@@ -256,6 +294,14 @@ type Session = {
 };
 
 const MAX_BODY_BYTES = 1_048_576;
+/**
+ * Wall-clock cap on how long `readJsonBody` waits for the full request body.
+ * Overridable via env for testing the slow-loris branch.
+ */
+function readBodyTimeoutMs(): number {
+  const v = Number(process.env.BROWSER_MCP_READ_BODY_TIMEOUT_MS ?? "10000");
+  return Number.isFinite(v) && v > 0 ? v : 10_000;
+}
 
 export type AppOptions = {
   /** Inject a BrowserManager factory (for tests). Defaults to `new BrowserManager(profile)`. */
@@ -326,9 +372,19 @@ export function createApp(opts: AppOptions = {}): {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
       let bytes = 0;
+      // Slow-loris guard: close the socket if the full body doesn't arrive
+      // within READ_BODY_TIMEOUT_MS. Without this, a 1 B/s trickle could
+      // tie up a session slot indefinitely.
+      const timeout = setTimeout(() => {
+        req.destroy();
+        reject(Object.assign(new Error("Request body timeout"), { statusCode: 408 }));
+      }, readBodyTimeoutMs());
+      const cleanup = () => clearTimeout(timeout);
+
       req.on("data", (c: Buffer) => {
         bytes += c.length;
         if (bytes > MAX_BODY_BYTES) {
+          cleanup();
           req.destroy();
           reject(Object.assign(new Error("Request body too large"), { statusCode: 413 }));
           return;
@@ -336,6 +392,7 @@ export function createApp(opts: AppOptions = {}): {
         chunks.push(c);
       });
       req.on("end", () => {
+        cleanup();
         if (chunks.length === 0) return resolve(undefined);
         try {
           resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
@@ -343,7 +400,7 @@ export function createApp(opts: AppOptions = {}): {
           reject(e);
         }
       });
-      req.on("error", reject);
+      req.on("error", (e) => { cleanup(); reject(e); });
     });
   }
 
@@ -449,10 +506,17 @@ export function createApp(opts: AppOptions = {}): {
   }
 
   function checkOrigin(req: IncomingMessage): { ok: true } | { ok: false; reason: string } {
-    const origin = (req.headers["origin"] as string | undefined) ?? "";
-    if (!origin) return { ok: true };
+    // No Origin header = native client (curl, MCP SDK, Node fetch without
+    // explicit origin). Always allowed — CSRF requires a browser, and
+    // browsers always send Origin on cross-origin fetch.
+    const raw = req.headers["origin"];
+    if (raw === undefined) return { ok: true };
+    const origin = String(raw);
     if (config.corsOrigin === "*") return { ok: true };
-    const allowed = config.corsOrigin.split(",").map(s => s.trim()).filter(Boolean);
+    // Treat the literal string "null" in the allowlist as an intentional
+    // opt-in — sandboxed iframes / file:// pages serialize Origin: null,
+    // which otherwise would be a CSRF bypass on loopback without auth.
+    const allowed = config.corsOrigin.split(",").map((s) => s.trim()).filter(Boolean);
     if (allowed.includes(origin)) return { ok: true };
     return { ok: false, reason: `origin '${origin}' not allowed` };
   }

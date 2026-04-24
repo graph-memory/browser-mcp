@@ -209,6 +209,7 @@ describe("download — failure branch reports isError", () => {
       evaluate: async () => {},
     };
     const mgr = baseMgr({
+      profileName: "default",
       getPage: (() => fakePage) as unknown as BrowserManager["getPage"],
     });
     const { makeDownloadHandler } = await import("../../src/tools/download.js");
@@ -216,7 +217,7 @@ describe("download — failure branch reports isError", () => {
     const r = await handler({
       action: "navigate",
       url: "https://example.com/x.bin",
-      save_to: "/tmp/dl-fail",
+      save_to: "dl-fail",
       target_type: "text",
     });
     expect((r as { isError?: boolean }).isError).toBe(true);
@@ -242,26 +243,29 @@ describe("open — messages for 2xx, 4xx, unknown status", () => {
   it("unknown status falls through to 'HTTP status unknown'", async () => {
     const mgr = baseMgr({
       navigate: (async () => ({
-        tab_id: "tab1", title: "T", url: "file:///x", status: undefined,
+        tab_id: "tab1", title: "T", url: "https://example.com/x", status: undefined,
       })) as BrowserManager["navigate"],
     });
     const handler = makeOpenHandler(mgr);
-    const r = await handler({ url: "file:///x" });
+    const r = await handler({ url: "https://example.com/x" });
     expect((r as { content: { text: string }[] }).content[0].text).toContain("HTTP status unknown");
   });
 });
 
 describe("save — PDF headless-requirement error branch", () => {
+  // Unit tests run with no env opt-ins set, so paths must land under the
+  // default sandbox (~/.browser-mcp/downloads/default/). Relative paths do.
   it("returns isError when page.pdf() throws a 'headless'-containing message", async () => {
     const fakePage = {
       content: async () => "<html></html>",
       pdf: async () => { throw new Error("pdf() is only available in headless mode"); },
     };
     const mgr = baseMgr({
+      profileName: "default",
       getPage: () => fakePage as unknown as ReturnType<BrowserManager["getPage"]>,
     });
     const handler = makeSaveHandler(mgr);
-    const r = await handler({ format: "pdf", path: "/tmp/ignored.pdf" });
+    const r = await handler({ format: "pdf", path: "ignored.pdf" });
     expect((r as { isError?: boolean }).isError).toBe(true);
     expect((r as { content: { text: string }[] }).content[0].text).toContain("headless");
   });
@@ -272,9 +276,10 @@ describe("save — PDF headless-requirement error branch", () => {
       pdf: async () => { throw new Error("something else broke"); },
     };
     const mgr = baseMgr({
+      profileName: "default",
       getPage: () => fakePage as unknown as ReturnType<BrowserManager["getPage"]>,
     });
     const handler = makeSaveHandler(mgr);
-    await expect(handler({ format: "pdf", path: "/tmp/ignored2.pdf" })).rejects.toThrow(/something else/);
+    await expect(handler({ format: "pdf", path: "ignored2.pdf" })).rejects.toThrow(/something else/);
   });
 });

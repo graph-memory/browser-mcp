@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { BrowserManager, LocatorType } from "../browser.js";
+import { config } from "../config.js";
+import { truncate } from "../render.js";
 
 const LOCATOR_TYPES = ["text", "role", "label", "placeholder", "testid", "selector"] as const;
 
@@ -292,6 +294,9 @@ export function makeEvaluateHandler(browser: BrowserManager) {
     const result = await page.evaluate(expression);
     const text =
       result === undefined ? "undefined" : JSON.stringify(result, null, 2);
-    return { content: [{ type: "text" as const, text }] };
+    // Cap output — otherwise a page returning a 50M-item array buffers the
+    // whole thing in the supervisor before we can respond. Same ceiling as
+    // browser_read (BROWSER_MCP_MAX_CHARS).
+    return { content: [{ type: "text" as const, text: truncate(text, config.maxChars) }] };
   };
 }

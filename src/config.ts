@@ -35,7 +35,7 @@ const program = new Command()
   .option("--no-javascript", "Disable JavaScript")
   .option("--api-key <key>", "API key for authentication (Bearer token). If set, all requests must include Authorization header")
   .option("--allow-insecure", "Allow binding to a non-loopback host without an API key. Off by default — browser-mcp refuses to start in that configuration because /mcp can automate a real browser on behalf of anyone who can reach it.")
-  .option("--cors-origin <value>", "Allowed CORS Origin. Comma-separated exact origins, or '*' to disable origin checking. Defaults to 'null' — only requests without an Origin header (curl, native MCP clients) are allowed.")
+  .option("--cors-origin <value>", "Allowed CORS Origin allowlist. Comma-separated exact origins, '*' to disable origin checking, or empty (default) — only requests without an Origin header (curl, native MCP clients) are allowed. Warning: 'null' as a value opts in to sandboxed-iframe/file:// CSRF.")
   .option("--max-sessions <number>", "Hard cap on concurrent MCP sessions");
 
 // Under vitest, process.argv contains the runner's flags (--run, --reporter, etc.)
@@ -118,6 +118,11 @@ export const config = {
   mobile: bool(opts.mobile, process.env.BROWSER_MCP_MOBILE, false),
   apiKey: str(opts.apiKey, process.env.BROWSER_MCP_API_KEY, ""),
   allowInsecure: bool(opts.allowInsecure, process.env.BROWSER_MCP_ALLOW_INSECURE, false),
-  corsOrigin: str(opts.corsOrigin, process.env.BROWSER_MCP_CORS_ORIGIN, "null"),
+  // Default: empty allowlist. Only requests WITHOUT an Origin header (native
+  // clients — curl, MCP SDK, fetch-without-origin) are allowed.
+  // `null` here as a legitimate value opts in to Origin: null (sandboxed
+  // iframes, file:// pages), which is a CSRF vector on loopback without auth,
+  // so don't enable it by default.
+  corsOrigin: str(opts.corsOrigin, process.env.BROWSER_MCP_CORS_ORIGIN, ""),
   maxSessions: num(opts.maxSessions, process.env.BROWSER_MCP_MAX_SESSIONS, 50),
 } as const;

@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { resolve as resolvePath, dirname } from "node:path";
+import { dirname } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 import type { BrowserManager } from "../browser.js";
+import { resolveWritePath } from "../lib/path-sandbox.js";
 
 export const saveSchema = {
   format: z.enum(["pdf", "mhtml", "html"])
@@ -31,7 +32,7 @@ export function makeSaveHandler(browser: BrowserManager) {
     tab_id?: string;
   }) => {
     const page = browser.getPage(args.tab_id);
-    const outPath = resolvePath(args.path);
+    const outPath = resolveWritePath(args.path, browser.profileName);
     try { mkdirSync(dirname(outPath), { recursive: true }); } catch { /* ignore */ }
 
     if (args.format === "html") {

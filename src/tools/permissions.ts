@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { BrowserManager } from "../browser.js";
+import { assertOriginUrl } from "../lib/url-safety.js";
 
 const PERMS = [
   "geolocation", "midi", "midi-sysex", "notifications", "camera", "microphone",
@@ -43,6 +44,10 @@ export function makePermissionsHandler(browser: BrowserManager) {
     const perms = args.grant === "all" ? [...PERMS] : args.grant;
 
     let originHint = args.origin;
+    if (originHint) {
+      // Validate it's an http(s) origin — rejects file:, data:, javascript:, etc.
+      assertOriginUrl(originHint);
+    }
     if (!originHint) {
       try {
         const page = browser.getPage(args.tab_id);

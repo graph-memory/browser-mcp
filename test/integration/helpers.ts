@@ -16,6 +16,16 @@ export function bootIntegrationEnv(profileTag: string): { profileDir: string; pr
   process.env.BROWSER_MCP_PROFILE_DIR = profileDir;
   process.env.BROWSER_MCP_HEADLESS = "1";
   process.env.BROWSER_MCP_STEALTH = "0";
+  // Opt into safety-bypasses tests actually need:
+  //   - file:// URLs for local HTML fixtures
+  //   - private networks for the in-process HTTP test server (127.0.0.1)
+  //   - any write path / upload path for tool-IO tests writing under /tmp
+  //   - sandbox base under the throwaway profile dir so nothing pollutes ~/.browser-mcp
+  process.env.BROWSER_MCP_ALLOW_FILE_URLS = "1";
+  process.env.BROWSER_MCP_ALLOW_PRIVATE_NETWORKS = "1";
+  process.env.BROWSER_MCP_ALLOW_ANY_WRITE_PATH = "1";
+  process.env.BROWSER_MCP_ALLOW_ANY_UPLOAD_PATH = "1";
+  process.env.BROWSER_MCP_SANDBOX_DIR = join(profileDir, "sandbox");
   return { profileDir, profileName: profileTag.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 60) };
 }
 
