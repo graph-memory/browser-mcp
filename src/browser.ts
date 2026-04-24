@@ -48,6 +48,7 @@ export class BrowserManager {
   private netLogHead = 0;          // next insert index (ring)
   private netLogSize = 0;          // current length (<= NET_RING_CAP)
   private reqStart = new WeakMap<object, { ts: number; tab_id: string }>();
+  private snapshotStore = new Map<string, AxNode>();
   private currentTabId: string | null = null;
   private headless: boolean;
   private sweepTimer: NodeJS.Timeout | null = null;
@@ -513,6 +514,22 @@ export class BrowserManager {
     return this.ensureContext();
   }
 
+  storeSnapshot(id: string, snapshot: AxNode): void {
+    this.snapshotStore.set(id, snapshot);
+  }
+
+  getStoredSnapshot(id: string): AxNode | undefined {
+    return this.snapshotStore.get(id);
+  }
+
+  deleteStoredSnapshot(id: string): boolean {
+    return this.snapshotStore.delete(id);
+  }
+
+  listStoredSnapshots(): string[] {
+    return Array.from(this.snapshotStore.keys());
+  }
+
   /**
    * Accessibility snapshot via CDP. Playwright 1.40+ no longer exposes
    * `page.accessibility.snapshot()`, so we pull the AX tree directly from
@@ -791,18 +808,34 @@ function cdpAxToTree(nodes: AxCdpNode[], interestingOnly: boolean): AxNode | nul
 }
 
 /**
- * When a node's `name` already contains the full text of a single StaticText
- * child, drop the child — it's noise for LLM consumers. E.g.
- *   - link "Home"
- *     - StaticText "Home"
- * becomes just
- *   - link "Home".
+ * Post-pass on the AX tree:
+ *   1. If a node has no `name` and exactly one StaticText child, promote that
+ *      child's text as the node's name. This gives `listitem`, `cell`, and
+ *      similar containers meaningful identity so they can be distinguished
+ *      in a snapshot (and diffed).
+ *   2. If a node's `name` already matches a single StaticText child, drop the
+ *      child — it's noise for LLM consumers.
  */
 function collapseRedundantText(node: AxNode): AxNode {
   if (!node.children || node.children.length === 0) return node;
-  const kids = node.children
-    .map(collapseRedundantText)
-    .filter((c) => !(c.role === "StaticText" && c.name && c.name === node.name && !c.children));
+  let kids = node.children.map(collapseRedundantText);
+
+  // Promote StaticText descendants into the parent's name when parent is
+  // anonymous. Handles listitem (sibling ListMarker + StaticText), cell, etc.
+  if (!node.name) {
+    const texts = kids
+      .filter((c) => c.role === "StaticText" && c.name && !c.children)
+      .map((c) => c.name!);
+    if (texts.length > 0) {
+      node = { ...node, name: texts.join(" ") };
+      // Drop the StaticText children we just consumed. Keep ListMarker etc.
+      kids = kids.filter((c) => !(c.role === "StaticText" && texts.includes(c.name ?? "")));
+    }
+  }
+
+  // Drop StaticText children whose text matches the parent's name exactly.
+  kids = kids.filter((c) => !(c.role === "StaticText" && c.name && c.name === node.name && !c.children));
+
   return kids.length ? { ...node, children: kids } : (() => { const { children, ...rest } = node; return rest; })();
 }
 
@@ -870,6 +903,118 @@ function walk(node: AxNode, indent: number, lines: string[]): void {
   const attrStr = attrs.length ? ` [${attrs.join(", ")}]` : "";
   lines.push(`${pad}- ${node.role}${name}${attrStr}`);
   if (node.children) for (const c of node.children) walk(c, indent + 1, lines);
+}
+
+/**
+ * Roles that represent something the user can interact with. Used by
+ * compact mode to strip away pure presentation/layout.
+ */
+const INTERACTIVE_ROLES = new Set([
+  "button", "link", "textbox", "searchbox", "combobox", "listbox", "option",
+  "checkbox", "radio", "switch", "slider", "spinbutton", "menuitem",
+  "menuitemcheckbox", "menuitemradio", "tab", "treeitem", "gridcell",
+  "columnheader", "rowheader", "scrollbar",
+]);
+
+/** Headings and landmarks — keep as navigation anchors even in compact mode. */
+const STRUCTURAL_ROLES = new Set([
+  "heading", "navigation", "main", "banner", "contentinfo", "form", "search",
+  "dialog", "alertdialog", "region", "complementary", "tablist", "toolbar",
+  "tree", "grid", "listbox", "menubar", "menu",
+  // Content containers — without these, list/table contents disappear from
+  // compact view and diffs can't show newly-added items.
+  "list", "listitem", "table", "row", "rowgroup", "cell",
+  "article", "figure", "tabpanel",
+]);
+
+/**
+ * Keep only interactive elements plus structural landmarks/headings that help
+ * the LLM navigate. Container nodes are preserved iff they have kept
+ * descendants; otherwise they're dropped.
+ */
+export function filterCompact(node: AxNode): AxNode | null {
+  const kids = (node.children ?? [])
+    .map(filterCompact)
+    .filter((c): c is AxNode => c !== null);
+
+  const keepSelf = INTERACTIVE_ROLES.has(node.role) || STRUCTURAL_ROLES.has(node.role);
+
+  if (keepSelf) {
+    return kids.length ? { ...node, children: kids } : (() => { const { children, ...rest } = node; return rest; })();
+  }
+  // Not interesting by itself — but if we have interesting children, hoist them.
+  if (kids.length === 0) return null;
+  if (kids.length === 1) return kids[0];
+  // Multiple interesting kids: represent as a generic group to preserve hierarchy.
+  return { role: "group", children: kids };
+}
+
+/**
+ * Path-based signature for a node: role + name + value. Used to match nodes
+ * across snapshots when diffing. Ignores ordering among siblings that share
+ * the same signature.
+ */
+function signatureOf(node: AxNode): string {
+  return `${node.role}|${node.name ?? ""}|${node.value ?? ""}`;
+}
+
+export type SnapshotDiff = {
+  added: string[];        // signatures that are new
+  removed: string[];      // signatures that are gone
+  changed: Array<{ signature: string; was: string; now: string }>;  // state changes (checked/disabled/value)
+};
+
+function flatten(node: AxNode): Map<string, AxNode> {
+  const out = new Map<string, AxNode>();
+  const walk = (n: AxNode, path: string) => {
+    const sig = `${path}/${signatureOf(n)}`;
+    out.set(sig, n);
+    for (const c of n.children ?? []) walk(c, sig);
+  };
+  walk(node, "");
+  return out;
+}
+
+/** Compute a high-level diff between two AX snapshots. */
+export function diffSnapshots(before: AxNode, after: AxNode): SnapshotDiff {
+  const a = flatten(before);
+  const b = flatten(after);
+  const added: string[] = [];
+  const removed: string[] = [];
+  const changed: SnapshotDiff["changed"] = [];
+
+  for (const [k, bv] of b) {
+    if (!a.has(k)) {
+      added.push(friendlySig(k, bv));
+    } else {
+      const av = a.get(k)!;
+      const w = stateSummary(av);
+      const n = stateSummary(bv);
+      if (w !== n) changed.push({ signature: friendlySig(k, bv), was: w, now: n });
+    }
+  }
+  for (const [k, av] of a) {
+    if (!b.has(k)) removed.push(friendlySig(k, av));
+  }
+  return { added, removed, changed };
+}
+
+function friendlySig(key: string, node: AxNode): string {
+  const name = node.name ? ` "${node.name}"` : "";
+  return `${node.role}${name}`;
+}
+
+function stateSummary(n: AxNode): string {
+  const parts = [
+    n.value !== undefined ? `value=${JSON.stringify(n.value)}` : null,
+    n.checked !== undefined ? `checked=${n.checked}` : null,
+    n.pressed !== undefined ? `pressed=${n.pressed}` : null,
+    n.selected ? "selected" : null,
+    n.disabled ? "disabled" : null,
+    n.expanded !== undefined ? `expanded=${n.expanded}` : null,
+    n.focused ? "focused" : null,
+  ].filter(Boolean);
+  return parts.join(",");
 }
 
 function axAttrs(node: AxNode): string[] {

@@ -288,11 +288,15 @@ Return an **accessibility snapshot** of the page — a compact tree of semantic 
 | `selector` | string | no | — | Scope to subtree rooted at this CSS selector |
 | `max_depth` | integer (0-50) | no | — | Truncate deeper children with a `"N hidden children"` summary |
 | `interesting_only` | boolean | no | `true` | Prune decorative/hidden nodes (Playwright convention) |
+| `compact` | boolean | no | auto | Keep only interactive elements (buttons, links, inputs, menu items) plus structural landmarks (headings, nav, main, dialog, forms, lists, tables). Auto-enables when `store_as` or `diff_against` is set |
+| `store_as` | string (1-64) | no | — | Save this snapshot under a name for later diffing |
+| `diff_against` | string (1-64) | no | — | Compute a diff vs the named stored snapshot; returns added/removed/changed lists instead of the tree. Combine with `store_as` to roll the baseline forward |
 | `format` | `"yaml"` \| `"json"` | no | `"yaml"` | Compact indented tree (default) or raw AXNode JSON |
 | `tab_id` | string | no | active tab | Tab to snapshot |
 
-Sample output (`yaml`) — decorative `InlineTextBox` nodes are filtered and
-`StaticText` children whose text matches their parent's name are collapsed:
+Sample output (`yaml`) — decorative `InlineTextBox` nodes are filtered,
+`StaticText` children whose text matches their parent's name are collapsed,
+and anonymous containers like `listitem` inherit their text content as name:
 ```
 - RootWebArea "Login" [focused]
   - heading "Login" [level=1]
@@ -300,6 +304,33 @@ Sample output (`yaml`) — decorative `InlineTextBox` nodes are filtered and
   - textbox "Password" [required]
   - button "Sign in"
 ```
+
+Compact view strips generic wrappers, keeping only what the user can interact with
+plus structural anchors:
+```
+- form
+  - textbox "Email"
+  - textbox "Password"
+  - button "Sign in"
+```
+
+Diff output (after `store_as: "before"` → some actions → `diff_against: "before"`):
+```
+── diff vs "before" ──
+
+Added (2):
+  + listitem "buy milk"
+  + listitem "walk dog"
+
+Changed (1):
+  ~ button "Add"  [-] → [focused]
+```
+
+**Caveat:** the diff is path-based (role+name chain from root). Structural
+changes that shift sibling order can cause spurious add/remove pairs on
+otherwise-unchanged nodes. Works best for "I clicked X, what appeared" use cases
+rather than "detect exactly one element changed". Always auto-compact when
+diffing to reduce noise.
 
 ### `browser_scroll`
 

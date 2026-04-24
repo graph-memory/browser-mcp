@@ -1,10 +1,20 @@
 services:
   browser-mcp:
     build: .
+    # tini is baked into the image, but compose's init adds no overhead and
+    # provides belt-and-suspenders orphan cleanup.
+    init: true
     ports:
       - "7777:7777"
     environment:
-      - BROWSER_MCP_API_KEY=${BROWSER_MCP_API_KEY:-}
+      # REQUIRED. The image binds to 0.0.0.0 and refuses to start without a
+      # key (or --allow-insecure). Put your value in a .env file next to this
+      # compose file:
+      #   BROWSER_MCP_API_KEY=$(openssl rand -hex 32)
+      - BROWSER_MCP_API_KEY
+      - BROWSER_MCP_CORS_ORIGIN=${BROWSER_MCP_CORS_ORIGIN:-null}
+      - BROWSER_MCP_MAX_SESSIONS=${BROWSER_MCP_MAX_SESSIONS:-50}
+      - BROWSER_MCP_STEALTH=${BROWSER_MCP_STEALTH:-1}
     volumes:
       - browser:/home/browser/.browser-mcp
 
