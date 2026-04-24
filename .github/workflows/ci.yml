@@ -17,3 +17,27 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run build
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # Playwright Chromium + OS deps required by headless Chromium.
+      # --with-deps installs the libnss / libgbm / libasound / etc. bundle.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:coverage
+        env:
+          # Tests use local HTML fixtures and an in-process HTTP server only.
+          BROWSER_MCP_HEADLESS: '1'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14

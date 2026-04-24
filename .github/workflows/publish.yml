@@ -18,7 +18,10 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - run: npm ci --ignore-scripts
+      # Gate releases on the full test suite so a broken tag never ships.
+      - run: npx playwright install --with-deps chromium
       - run: npm run build
+      - run: npm test
       - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
