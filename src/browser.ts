@@ -41,6 +41,13 @@ const NET_RING_CAP = 500;
 
 export class BrowserManager {
   private context: BrowserContext | null = null;
+  /**
+   * Pending context launch. Concurrent callers to ensureContext() — common
+   * under Vitest where many tests hit the browser in parallel — must all
+   * await the SAME launchPersistentContext promise. Racing two launches on
+   * the same profile dir trips Chromium's SingletonLock and hangs.
+   */
+  private contextLaunching: Promise<BrowserContext> | null = null;
   private tabs = new Map<string, Page>();
   private pageToId = new Map<Page, string>();
   private lastUsed = new Map<string, number>();
@@ -74,55 +81,70 @@ export class BrowserManager {
 
   private async ensureContext(): Promise<BrowserContext> {
     if (this.context) return this.context;
+    // Race guard: share the in-flight launch promise across concurrent
+    // callers. Without this, two awaits racing to `launchPersistentContext`
+    // on the same profile dir trip Chromium's SingletonLock and the second
+    // call errors out with "profile is already in use".
+    if (this.contextLaunching) return this.contextLaunching;
 
-    const viewport = this._overrides.viewport ?? config.viewport;
-    const deviceScaleFactor = this._overrides.deviceScaleFactor ?? config.deviceScaleFactor;
-    const isMobile = this._overrides.isMobile ?? config.mobile;
-    const hasTouch = this._overrides.hasTouch ?? config.mobile;
-    const userAgent = this._overrides.userAgent ?? config.userAgent;
-    const locale = this._overrides.locale ?? config.locale;
-    const colorScheme = this._overrides.colorScheme ?? config.colorScheme;
+    const launch = (async () => {
+      const viewport = this._overrides.viewport ?? config.viewport;
+      const deviceScaleFactor = this._overrides.deviceScaleFactor ?? config.deviceScaleFactor;
+      const isMobile = this._overrides.isMobile ?? config.mobile;
+      const hasTouch = this._overrides.hasTouch ?? config.mobile;
+      const userAgent = this._overrides.userAgent ?? config.userAgent;
+      const locale = this._overrides.locale ?? config.locale;
+      const colorScheme = this._overrides.colorScheme ?? config.colorScheme;
 
-    // Don't leak supervisor-internal env (API key, host, caps) into Chromium.
-    // Chromium doesn't need any of BROWSER_MCP_* to function; keeping the API
-    // key out is just good hygiene for apps that might fingerprint the env.
-    const childEnv = Object.fromEntries(
-      Object.entries(process.env).filter(
-        ([k, v]) => !k.startsWith("BROWSER_MCP_") && v !== undefined,
-      ),
-    ) as Record<string, string>;
+      // Don't leak supervisor-internal env (API key, host, caps) into Chromium.
+      // Chromium doesn't need any of BROWSER_MCP_* to function; keeping the API
+      // key out is just good hygiene for apps that might fingerprint the env.
+      const childEnv = Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([k, v]) => !k.startsWith("BROWSER_MCP_") && v !== undefined,
+        ),
+      ) as Record<string, string>;
 
-    this.context = await chromium.launchPersistentContext(this.profileDir, {
-      headless: this.headless,
-      channel: config.channel,
-      viewport,
-      deviceScaleFactor,
-      isMobile,
-      hasTouch,
-      javaScriptEnabled: config.javaScript,
-      env: childEnv,
-      ...(userAgent && { userAgent }),
-      ...(locale && { locale }),
-      ...(colorScheme && { colorScheme }),
-      ...(config.proxy && {
-        proxy: {
-          server: config.proxy,
-          ...(config.proxyBypass && { bypass: config.proxyBypass }),
-          ...(config.proxyUsername && { username: config.proxyUsername }),
-          ...(config.proxyPassword && { password: config.proxyPassword }),
-        },
-      }),
-    });
-    if (locale) {
-      this._extraHeaders["Accept-Language"] = locale;
-      await this.context.setExtraHTTPHeaders({ ...this._extraHeaders });
+      const ctx = await chromium.launchPersistentContext(this.profileDir, {
+        headless: this.headless,
+        channel: config.channel,
+        viewport,
+        deviceScaleFactor,
+        isMobile,
+        hasTouch,
+        javaScriptEnabled: config.javaScript,
+        env: childEnv,
+        ...(userAgent && { userAgent }),
+        ...(locale && { locale }),
+        ...(colorScheme && { colorScheme }),
+        ...(config.proxy && {
+          proxy: {
+            server: config.proxy,
+            ...(config.proxyBypass && { bypass: config.proxyBypass }),
+            ...(config.proxyUsername && { username: config.proxyUsername }),
+            ...(config.proxyPassword && { password: config.proxyPassword }),
+          },
+        }),
+      });
+      this.context = ctx;
+      if (locale) {
+        this._extraHeaders["Accept-Language"] = locale;
+        await ctx.setExtraHTTPHeaders({ ...this._extraHeaders });
+      }
+      for (const page of ctx.pages()) {
+        this.registerPage(page);
+      }
+      ctx.on("page", (p) => this.registerPage(p, false));
+      this.startSweeper();
+      return ctx;
+    })();
+
+    this.contextLaunching = launch;
+    try {
+      return await launch;
+    } finally {
+      this.contextLaunching = null;
     }
-    for (const page of this.context.pages()) {
-      this.registerPage(page);
-    }
-    this.context.on("page", (p) => this.registerPage(p, false));
-    this.startSweeper();
-    return this.context;
   }
 
   private registerPage(page: Page, setActive = true): string {
@@ -636,6 +658,11 @@ export class BrowserManager {
     if (this.sweepTimer) {
       clearInterval(this.sweepTimer);
       this.sweepTimer = null;
+    }
+    // If a launch is in flight, wait for it first so close() actually has
+    // a context to tear down (otherwise Chromium would be left running).
+    if (this.contextLaunching) {
+      await this.contextLaunching.catch(() => {});
     }
     if (this.context) {
       await this.context.close().catch(() => {});

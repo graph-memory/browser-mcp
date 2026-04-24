@@ -18,6 +18,9 @@ describe.skipIf(SKIP)("tools/expect — every assertion branch", () => {
     mgr = new BrowserManager(profileName);
     open = o.makeOpenHandler(mgr);
     exp = e.makeExpectHandler(mgr);
+    // Warm up Chromium outside the first test's budget — cold-start on CI
+    // can run past 5 s, which would time out the first assertion test.
+    await open({ url: fixtureUrl("form.html") });
   }, 60_000);
 
   afterAll(async () => {
