@@ -64,6 +64,15 @@ export class BrowserManager {
     const locale = this._overrides.locale ?? config.locale;
     const colorScheme = this._overrides.colorScheme ?? config.colorScheme;
 
+    // Don't leak supervisor-internal env (API key, host, caps) into Chromium.
+    // Chromium doesn't need any of BROWSER_MCP_* to function; keeping the API
+    // key out is just good hygiene for apps that might fingerprint the env.
+    const childEnv = Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([k, v]) => !k.startsWith("BROWSER_MCP_") && v !== undefined,
+      ),
+    ) as Record<string, string>;
+
     this.context = await chromium.launchPersistentContext(this.profileDir, {
       headless: this.headless,
       channel: config.channel,
@@ -72,6 +81,7 @@ export class BrowserManager {
       isMobile,
       hasTouch,
       javaScriptEnabled: config.javaScript,
+      env: childEnv,
       ...(userAgent && { userAgent }),
       ...(locale && { locale }),
       ...(colorScheme && { colorScheme }),
@@ -386,6 +396,11 @@ export class BrowserManager {
     return await page.screenshot({ fullPage, type: "png" });
   }
 
+  /** Public accessor for BrowserContext; used by permission / network tools. */
+  async getContext(): Promise<BrowserContext> {
+    return this.ensureContext();
+  }
+
   /**
    * Accessibility snapshot via CDP. Playwright 1.40+ no longer exposes
    * `page.accessibility.snapshot()`, so we pull the AX tree directly from
@@ -565,6 +580,12 @@ type AxCdpNode = {
   properties?: AxCdpProp[];
 };
 
+// Roles that are always noise for LLM consumers. InlineTextBox duplicates
+// StaticText's text. StaticText under a parent with the same name (e.g. a link)
+// also dupes. We strip InlineTextBox unconditionally when interestingOnly is
+// set, and collapse single-child StaticText chains.
+const ALWAYS_NOISY_ROLES = new Set(["InlineTextBox"]);
+
 function cdpAxToTree(nodes: AxCdpNode[], interestingOnly: boolean): AxNode | null {
   const byId = new Map(nodes.map((n) => [n.nodeId, n]));
   // Find root: a node whose parent isn't in the map, or with no parentId.
@@ -572,6 +593,9 @@ function cdpAxToTree(nodes: AxCdpNode[], interestingOnly: boolean): AxNode | nul
   if (!root) return null;
 
   const build = (raw: AxCdpNode): AxNode | null => {
+    const role = raw.role?.value as string | undefined;
+    if (interestingOnly && role && ALWAYS_NOISY_ROLES.has(role)) return null;
+
     if (interestingOnly && raw.ignored) {
       // Skip ignored, but keep descendants — flatten children up.
       const kids: AxNode[] = [];
@@ -587,8 +611,7 @@ function cdpAxToTree(nodes: AxCdpNode[], interestingOnly: boolean): AxNode | nul
       return null;
     }
 
-    const role = (raw.role?.value as string | undefined) ?? "generic";
-    const node: AxNode = { role };
+    const node: AxNode = { role: role ?? "generic" };
 
     const name = raw.name?.value as string | undefined;
     if (name) node.name = name;
@@ -651,7 +674,24 @@ function cdpAxToTree(nodes: AxCdpNode[], interestingOnly: boolean): AxNode | nul
     return node;
   };
 
-  return build(root);
+  const tree = build(root);
+  return tree ? (interestingOnly ? collapseRedundantText(tree) : tree) : null;
+}
+
+/**
+ * When a node's `name` already contains the full text of a single StaticText
+ * child, drop the child — it's noise for LLM consumers. E.g.
+ *   - link "Home"
+ *     - StaticText "Home"
+ * becomes just
+ *   - link "Home".
+ */
+function collapseRedundantText(node: AxNode): AxNode {
+  if (!node.children || node.children.length === 0) return node;
+  const kids = node.children
+    .map(collapseRedundantText)
+    .filter((c) => !(c.role === "StaticText" && c.name && c.name === node.name && !c.children));
+  return kids.length ? { ...node, children: kids } : (() => { const { children, ...rest } = node; return rest; })();
 }
 
 

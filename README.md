@@ -219,6 +219,66 @@ Examples:
 { "target": "Search", "target_type": "placeholder", "text": "query", "submit": true }
 ```
 
+### `browser_expect`
+
+Assert a condition on the page. Retries up to `timeout_ms` before failing, so
+you don't need a separate `browser_wait` for flaky conditions. Returns `PASS`
+or `FAIL` with both `expected` and `actual` values in the error body.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `assertion` | `visible` \| `hidden` \| `enabled` \| `disabled` \| `text_equals` \| `text_contains` \| `text_matches` \| `value_equals` \| `count` \| `url_equals` \| `url_matches` \| `title_equals` \| `title_matches` | yes | — | What to assert |
+| `target` | string | depends | — | Element target (required for element/text/count/value assertions) |
+| `target_type` | same as browser_click | no | `"selector"` | Locator strategy |
+| `role` | ARIA role | no | — | For `target_type="role"` |
+| `exact` | boolean | no | `false` | Exact match for text/label/placeholder/role |
+| `expected` | string \| number | depends | — | Required for text/value/count/url/title assertions. For `*_matches` it's a regex |
+| `timeout_ms` | integer (1-60000) | no | `5000` | Retry window |
+| `tab_id` | string | no | active tab | Tab to check |
+
+Examples:
+```json
+{ "assertion": "visible", "target": "Sign in", "target_type": "role", "role": "button" }
+{ "assertion": "text_contains", "target": "#status", "target_type": "selector", "expected": "done" }
+{ "assertion": "count", "target": "input", "target_type": "selector", "expected": 3 }
+{ "assertion": "url_matches", "expected": "^https://app\\.example\\.com/orders" }
+```
+
+### `browser_permissions`
+
+Grant (or clear) browser permissions like camera, microphone, geolocation,
+notifications, clipboard read/write. Use **before** navigating to a site that
+will prompt the user so the prompt never appears.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `grant` | `"all"` \| `"none"` \| array of permissions | yes | — | `"all"` grants every supported permission; `"none"` clears all; array picks specific ones |
+| `origin` | URL | no | current tab's origin | Origin to grant the permissions for (http/https only) |
+| `tab_id` | string | no | active tab | Tab whose origin to use when `origin` is omitted |
+
+Supported permissions: `geolocation`, `midi`, `midi-sysex`, `notifications`,
+`camera`, `microphone`, `background-sync`, `ambient-light-sensor`,
+`accelerometer`, `gyroscope`, `magnetometer`, `clipboard-read`,
+`clipboard-write`, `payment-handler`, `storage-access`.
+
+### `browser_save`
+
+Save the current page to disk.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `format` | `"pdf"` \| `"mhtml"` \| `"html"` | yes | — | Output format |
+| `path` | string | yes | — | Absolute or relative path; parent dirs created automatically |
+| `full_page` | boolean | no | `false` | PDF only: full scrollable page (true) vs just viewport |
+| `landscape` | boolean | no | `false` | PDF only: landscape orientation |
+| `tab_id` | string | no | active tab | Tab to save |
+
+Format notes:
+- **pdf** — Chromium's native print-to-PDF. **Headless only** (Playwright limitation).
+- **mhtml** — single-file archive with all resources (images, CSS, scripts) inlined.
+  Best for offline analysis / later inspection by Claude on a different machine.
+- **html** — raw page HTML as-is (`page.content()`).
+
 ### `browser_snapshot`
 
 Return an **accessibility snapshot** of the page — a compact tree of semantic elements (role, name, value, state) pulled from Chrome's accessibility API via CDP. Much more reliable than scraping Markdown for SPAs or form-heavy pages. Pair with `browser_click` using `target_type="role"` or `target_type="label"` for robust interaction without CSS selectors.
@@ -231,9 +291,10 @@ Return an **accessibility snapshot** of the page — a compact tree of semantic 
 | `format` | `"yaml"` \| `"json"` | no | `"yaml"` | Compact indented tree (default) or raw AXNode JSON |
 | `tab_id` | string | no | active tab | Tab to snapshot |
 
-Sample output (`yaml`):
+Sample output (`yaml`) — decorative `InlineTextBox` nodes are filtered and
+`StaticText` children whose text matches their parent's name are collapsed:
 ```
-- RootWebArea [focused]
+- RootWebArea "Login" [focused]
   - heading "Login" [level=1]
   - textbox "Email" [required]
   - textbox "Password" [required]

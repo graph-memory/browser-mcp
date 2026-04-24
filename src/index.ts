@@ -44,6 +44,9 @@ import {
 } from "./tools/visual.js";
 import { configureSchema, makeConfigureHandler } from "./tools/configure.js";
 import { snapshotSchema, makeSnapshotHandler } from "./tools/snapshot.js";
+import { expectSchema, makeExpectHandler } from "./tools/expect.js";
+import { permissionsSchema, makePermissionsHandler } from "./tools/permissions.js";
+import { saveSchema, makeSaveHandler } from "./tools/save.js";
 import { logInfo, logError } from "./log.js";
 
 type ToolResult = {
@@ -183,6 +186,33 @@ function buildServer(browser: BrowserManager): McpServer {
       "`format` ('yaml' compact by default, 'json' raw).",
     inputSchema: snapshotSchema,
   }, withLog("browser_snapshot", makeSnapshotHandler(browser)));
+
+  server.registerTool("browser_expect", {
+    description:
+      "Assert a condition on the current page. Retries up to `timeout_ms` before failing, " +
+      "so you don't need a separate browser_wait for flaky conditions. Supports element " +
+      "state (visible/hidden/enabled/disabled), text (text_equals / text_contains / text_matches), " +
+      "form input (value_equals), element count, page URL / title. Returns PASS or FAIL with " +
+      "both expected and actual values in the error body.",
+    inputSchema: expectSchema,
+  }, withLog("browser_expect", makeExpectHandler(browser)));
+
+  server.registerTool("browser_permissions", {
+    description:
+      "Grant (or clear) browser permissions like camera, microphone, geolocation, notifications, " +
+      "clipboard read/write. Use before navigating to a site that will prompt the user. " +
+      "`grant: \"all\"` grants every supported permission; `\"none\"` clears all grants; " +
+      "an array picks specific ones. Applies to the current tab's origin by default.",
+    inputSchema: permissionsSchema,
+  }, withLog("browser_permissions", makePermissionsHandler(browser)));
+
+  server.registerTool("browser_save", {
+    description:
+      "Save the current page to disk. Formats: 'pdf' (Chromium's print-to-PDF, headless only), " +
+      "'mhtml' (single-file archive with all resources inlined — excellent for offline analysis), " +
+      "or 'html' (raw page HTML). Parent directories are created automatically.",
+    inputSchema: saveSchema,
+  }, withLog("browser_save", makeSaveHandler(browser)));
 
   server.registerTool("browser_configure", {
     description:
