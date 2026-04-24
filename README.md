@@ -1,35 +1,108 @@
 # browser-mcp
 
-MCP server that gives Claude (or any MCP client) a full browser — open pages, read content, click, type, scroll, take screenshots, manage tabs, and emulate devices. Powered by Playwright with stealth mode and persistent cookie/localStorage profiles.
+A Model Context Protocol server that gives Claude (or any MCP client) a full
+browser — open pages, read content, click, type, take screenshots, inspect the
+accessibility tree, manage tabs, and emulate devices. Powered by Playwright
+with stealth mode and persistent cookie/localStorage profiles. HTTP transport,
+runs as a daemon in its own process.
 
-> **Disclaimer:** This tool automates browser interactions and may violate the terms of service or acceptable use policies of websites it accesses. You are solely responsible for how you use it and which sites you interact with. The authors assume no liability for any consequences arising from its use.
+```
+Claude Code ──HTTP──▶  browser-mcp  ──Playwright──▶  Chromium (headless)
+                       │
+                       ├── MCP sessions (per-client McpServer + transport)
+                       ├── named profiles (persistent cookies / localStorage)
+                       ├── BrowserContext per profile (reused by sessions)
+                       ├── 25 tools: open / read / click / type / snapshot / …
+                       └── network ring, AX snapshot store, CSRF-hardened HTTP
+```
+
+> **Disclaimer:** This tool automates browser interactions and may violate the
+> terms of service of websites it accesses. You are solely responsible for how
+> you use it and which sites you interact with. The authors assume no liability
+> for any consequences arising from its use.
+
+---
+
+## Contents
+
+- [Why](#why)
+- [Quick start](#quick-start)
+- [Features](#features)
+- [Named profiles](#named-profiles)
+- [Tools reference](#tools-reference)
+- [Configuration](#configuration)
+- [Architecture](#architecture)
+- [Security model](#security-model)
+- [Testing](#testing)
+- [Docker](#docker)
+- [Platform notes](#platform-notes)
+- [Development](#development)
+- [FAQ](#faq)
+- [License](#license)
+
+---
+
+## Why
+
+Claude Code's built-in `WebFetch` can grab a URL as text, but it's a one-shot:
+no clicks, no form fills, no cookies, no state. For anything beyond "paste
+this article":
+
+- **Log into the site, then do X.** browser-mcp keeps cookies/localStorage on
+  disk in a named profile, so an authenticated session survives restarts. Log
+  in once via `browser_open_visible`, come back headless tomorrow.
+- **"What's on this SPA right now?"** `browser_snapshot` returns the
+  accessibility tree (role, name, value, state) via Chrome DevTools Protocol.
+  Much more reliable than scraping Markdown on a React dashboard.
+- **Form-driven workflows.** `browser_click`/`browser_type` use Playwright's
+  auto-waiting with role/label locators — stable across markup changes, no CSS
+  selectors to maintain. `browser_expect` retries assertions up to a timeout,
+  so you don't have to weave waits manually.
+- **Capture evidence.** `browser_save` writes PDF / MHTML / raw HTML;
+  `browser_screenshot` captures viewport/full-page/element. Useful for the
+  "show me what the page looked like when you filed the bug" handoff.
+- **Debug SPA behaviour.** `browser_network_log` exposes a ring buffer of the
+  last 500 requests — URL, method, status, timing, failure reason — so you
+  can find the 401 the page silently swallowed.
+- **Agent-friendly surface.** Role-based locators + accessibility snapshots
+  mean the model doesn't have to invent CSS selectors or guess the markup.
+
+---
 
 ## Quick start
 
-```bash
-npx @graphmemory/browser-mcp   # download, install Chromium, and start on http://127.0.0.1:7777/mcp
-```
-
-Or install globally:
+### 1. Install
 
 ```bash
+# Published package (preferred)
 npm install -g @graphmemory/browser-mcp
-browser-mcp --port 8080 --api-key my-secret
+browser-mcp
+
+# Or without install
+npx -y @graphmemory/browser-mcp
+
+# Or Docker (see "Docker" below for auth requirements)
+docker run --rm -p 7777:7777 -e BROWSER_MCP_API_KEY=$(openssl rand -hex 32) \
+  ghcr.io/graph-memory/browser-mcp:latest
 ```
 
-From source:
+Chromium is installed automatically on first run (`postinstall` hook).
 
-```bash
-git clone https://github.com/graph-memory/browser-mcp.git
-cd browser-mcp
-npm install
-npm run build
-npm start
+Boot log:
+
+```
+browser-mcp listening on http://127.0.0.1:7777/mcp
+  health       → http://127.0.0.1:7777/health
+  /mcp         → default profile
+  /mcp/<name>  → named profile (e.g. /mcp/test1)
+  auth         → DISABLED (loopback only)
+  cors_origin  → null
+  max_sessions → 50
 ```
 
-### Claude Code config
+### 2. Register in Claude Code
 
-Add to your MCP settings:
+Add to `~/.claude.json` (user-global) or `.mcp.json` (project-local):
 
 ```json
 {
@@ -42,7 +115,7 @@ Add to your MCP settings:
 }
 ```
 
-With API key authentication:
+With auth (required when bound to a non-loopback interface):
 
 ```json
 {
@@ -50,17 +123,108 @@ With API key authentication:
     "browser": {
       "type": "http",
       "url": "http://127.0.0.1:7777/mcp",
-      "headers": {
-        "Authorization": "Bearer your-secret-key"
-      }
+      "headers": { "Authorization": "Bearer ${BROWSER_MCP_API_KEY}" }
     }
   }
 }
 ```
 
+### 3. First conversation
+
+Ask Claude in plain language:
+
+> Open example.com, find the "Sign in" link, read the resulting page, and
+> fill the email field with test@example.com.
+
+It will sequence `browser_open` → `browser_click` → `browser_read` →
+`browser_type` for you. Keep iterating without leaving the conversation.
+
+### 4. Sample flow (what the tools actually look like)
+
+```
+browser_open          { url: "https://example.com" }
+browser_snapshot      { compact: true }                   # what can I click/type
+browser_click         { target: "Sign in", target_type: "role", role: "button" }
+browser_type          { target: "Email", target_type: "label", text: "a@b.co" }
+browser_expect        { assertion: "url_matches", expected: "/dashboard$" }
+browser_read          { mode: "markdown" }
+
+browser_save          { format: "pdf", path: "./dashboard.pdf" }
+browser_network_log   { failed_only: true, limit: 20 }
+browser_cookies       { action: "get", urls: ["https://example.com/"] }
+```
+
+---
+
+## Features
+
+- **25 tools** covering navigation, reading, interaction, assertions, IO,
+  network inspection, cookies, permissions, and device emulation. See the
+  [Tools reference](#tools-reference).
+- **Persistent named profiles.** Each URL path (`/mcp/<name>`) gets its own
+  cookies and localStorage under `~/.browser-mcp/profiles/<name>/`. Log in
+  once; restart the supervisor or Claude Code; the session is still there.
+- **Accessibility-first.** `browser_snapshot` pulls the AX tree from Chrome
+  DevTools Protocol (Playwright 1.40 removed the built-in AX API). Compact
+  mode strips decorative containers and keeps only interactive elements plus
+  landmarks — perfect for agents that need "what can I click" without reading
+  React-generated DOM noise.
+- **Diffable snapshots.** `browser_snapshot { store_as: "before" }` → do
+  something → `{ diff_against: "before" }` returns added/removed/state-changed
+  nodes as a compact diff. Auto-compact to suppress spurious noise.
+- **Role/label locators.** Every interact tool accepts
+  `target_type: role|label|text|placeholder|testid|selector`. Prefer `role`
+  for buttons/links and `label` for form fields — robust against markup
+  changes, zero CSS maintenance.
+- **`browser_expect` with retry.** 13 assertion kinds (visible/hidden/enabled/
+  disabled, text_equals/contains/matches, value_equals, count,
+  url_equals/matches, title_equals/matches). Retries up to a timeout so you
+  don't need a separate `browser_wait` for flaky conditions.
+- **`browser_read` with compact mode.** Markdown/text/HTML extraction; the
+  optional `compact` flag strips nav/header/footer/aside/script/style/iframe
+  and ARIA landmark chrome. Automatic on text/html (pages would otherwise be
+  drowned in boilerplate); off on markdown (Readability already picks the
+  article).
+- **Network ring buffer.** 500 most recent requests per profile, across all
+  tabs. Filter by tab, URL regex, method, min_status, or failed_only.
+  Surfaces the 4xx/5xx the UI quietly swallowed.
+- **Visible mode for login.** `browser_open_visible` shuts down the headless
+  context and reopens in a visible window for manual interaction (CAPTCHAs,
+  SSO, 2FA). Cookies land in the persistent profile; closing the window
+  returns to headless.
+- **Device emulation.** `browser_configure` applies viewport/DSR/UA/mobile/
+  locale/color-scheme presets. Named `device_preset` (iphone-15, ipad-pro,
+  pixel-8, desktop-retina…) applies a full profile atomically.
+- **File IO.** `browser_save` writes PDF (headless only)/MHTML/HTML;
+  `browser_upload` wires `<input type=file>` with path validation;
+  `browser_download_wait` captures a download triggered by click or
+  navigation, honours server-suggested filename.
+- **Stealth plugin.** `playwright-extra` + `puppeteer-extra-plugin-stealth`
+  applied by default. Disable with `--no-stealth` if it breaks a specific
+  site.
+- **Supervisor-env isolation.** All `BROWSER_MCP_*` vars (API key, host, caps)
+  are filtered out of Chromium's env so page scripts can't fingerprint the
+  supervisor configuration.
+- **CSRF-hardened HTTP.** `Content-Type: application/json` required, `Origin`
+  header whitelist, API key compared with `crypto.timingSafeEqual`.
+- **Refuse-to-start safety.** Bound to a non-loopback interface without an
+  API key? Exits with code 2 and an explanation. Override with
+  `--allow-insecure` if you know what you're doing.
+- **Session + tab TTL.** Idle MCP sessions reaped after `session_ttl`
+  (default 30 min); inactive tabs auto-closed after `tab_ttl` (default 10 min).
+  Hard cap on concurrent sessions (`max_sessions`, default 50).
+- **Multi-arch Docker image.** linux/amd64 + linux/arm64, non-root `browser`
+  user, `tini` as PID 1 for zombie reaping, healthcheck wired to `/health`.
+- **Full test suite.** 304 tests (unit + integration against a real headless
+  Chromium) covering every tool handler, the HTTP server (auth/CSRF/session
+  lifecycle), and the AX-tree pipeline. See [Testing](#testing).
+
+---
+
 ## Named profiles
 
-Each MCP endpoint URL can include a profile name that isolates cookies, localStorage, and browser state:
+Each MCP endpoint URL can include a profile name that isolates cookies,
+localStorage, and browser state:
 
 ```
 http://127.0.0.1:7777/mcp            → "default" profile
@@ -68,11 +232,15 @@ http://127.0.0.1:7777/mcp/test1      → "test1" profile
 http://127.0.0.1:7777/mcp/my-scraper → "my-scraper" profile
 ```
 
-Profile names must match `^[a-zA-Z0-9_-]{1,64}$` (letters, digits, dashes, underscores; 1-64 chars).
+Profile names must match `^[a-zA-Z0-9_-]{1,64}$` (letters, digits, dashes,
+underscores; 1–64 chars) — validated at the HTTP layer so path traversal can't
+escape the base directory.
 
-Profiles are stored at `~/.browser-mcp/profiles/<name>/` (override base dir with `--profile-dir` or `BROWSER_MCP_PROFILE_DIR`).
+Profiles are stored at `~/.browser-mcp/profiles/<name>/` (override with
+`--profile-dir` or `BROWSER_MCP_PROFILE_DIR`).
 
-Multiple MCP sessions on the same profile share one browser instance. When the last session on a profile expires, the browser shuts down automatically.
+Multiple MCP sessions on the same profile share one `BrowserContext`. When the
+last session on a profile expires, the context shuts down and Chromium exits.
 
 ### Multi-profile Claude Code config
 
@@ -91,63 +259,19 @@ Multiple MCP sessions on the same profile share one browser instance. When the l
 }
 ```
 
-## CLI options
+---
 
-All settings follow the priority: **CLI flag > environment variable > default**.
+## Tools reference
 
-```bash
-browser-mcp [options]
-
-Options:
-  -p, --port <number>              HTTP port (default: 7777)
-  -H, --host <address>             Bind address (default: 127.0.0.1)
-  --headless                       Run in headless mode (default)
-  --no-headless                    Run in visible mode
-  --stealth                        Enable stealth plugin (default)
-  --no-stealth                     Disable stealth plugin
-  --channel <name>                 Chromium channel: chrome, msedge, etc. (default: chrome)
-  --viewport <WxH>                 Default viewport size (default: 1280x900)
-  --device-scale-factor <number>   Device pixel ratio, e.g. 2 for retina (default: 1)
-  --mobile                         Enable mobile emulation (isMobile + hasTouch)
-  --no-mobile                      Disable mobile emulation (default)
-  --user-agent <string>            Default User-Agent string
-  --locale <lang>                  Default Accept-Language locale, e.g. en-US
-  --color-scheme <mode>            Default color scheme: light, dark, no-preference
-  --javascript                     Enable JavaScript (default)
-  --no-javascript                  Disable JavaScript
-  --proxy <url>                    Proxy server URL
-  --proxy-bypass <domains>         Comma-separated domains to bypass proxy
-  --proxy-username <user>          Proxy auth username
-  --proxy-password <pass>          Proxy auth password
-  --max-chars <number>             Max characters returned by browser_read (default: 50000)
-  --max-html-bytes <number>        Cap raw HTML size before parsing (default: 10000000)
-  --tab-ttl <seconds>              Auto-close inactive tabs after N seconds (default: 600)
-  --settle-ms <ms>                 Quiet-window duration for request-counting settle (default: 500)
-  --settle-timeout-ms <ms>         Hard timeout for settle after navigation/click (default: 3000)
-  --session-ttl <seconds>          Session TTL in seconds (default: 1800)
-  --profile-dir <path>             Base directory for browser profiles (default: ~/.browser-mcp/profiles)
-  --api-key <key>                  API key for Bearer token authentication
-  --allow-insecure                 Allow binding to non-loopback host without an API key (off by default — server refuses to start)
-  --cors-origin <value>            Allowed CORS Origin: comma list of origins, '*', or 'null' (default)
-  --max-sessions <number>          Hard cap on concurrent MCP sessions (default: 50)
-```
-
-Example:
-
-```bash
-npm start -- --port 8080 --no-stealth --viewport 1920x1080 --device-scale-factor 2
-
-# with authentication
-npm start -- --api-key my-secret-key
-# or
-BROWSER_MCP_API_KEY=my-secret-key npm start
-```
-
-## Tools
+All tools accept structured arguments (zod-validated). Responses are single-
+block `text` content (except `browser_screenshot`, which returns `image`).
 
 ### `browser_open`
 
-Open a URL in a new tab, or navigate an existing tab if `tab_id` is given. Waits for DOMContentLoaded plus a short request-idle settle. Does **not** return page content — call `browser_read` afterwards. Returns HTTP status, final URL, title, and tab_id.
+Open a URL in a new tab, or navigate an existing tab if `tab_id` is given.
+Waits for DOMContentLoaded plus a short request-idle settle. Does **not**
+return page content — call `browser_read` afterwards. Returns HTTP status,
+final URL, title, and tab_id.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -156,147 +280,131 @@ Open a URL in a new tab, or navigate an existing tab if `tab_id` is given. Waits
 
 ### `browser_read`
 
-Read the current (or specified) tab. `mode=markdown` (default) extracts the main article via Readability and returns Markdown. `mode=text` returns body innerText. `mode=html` returns raw HTML. Use `selector` to narrow to a specific element.
+Read the current (or specified) tab. `mode=markdown` (default) extracts the
+main article via Mozilla Readability and converts to Markdown. `mode=text`
+returns body innerText. `mode=html` returns raw HTML.
+
+`compact=true` strips nav / header / footer / aside / script / style / svg /
+iframe and ARIA landmark chrome (`banner`, `navigation`, `complementary`,
+`contentinfo`, `search`) before rendering. Defaults on for `text` / `html`,
+off for `markdown` (Readability already picks the article). Useful for
+dashboards / SPAs where Readability bails out.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `mode` | `"markdown"` \| `"text"` \| `"html"` | no | `"markdown"` | Extraction mode |
 | `selector` | string | no | — | CSS selector to narrow extraction to a specific element |
-| `max_chars` | integer | no | `50000` | Cap output length in characters (overridable globally via `BROWSER_MCP_MAX_CHARS`) |
+| `compact` | boolean | no | auto | Strip chrome (see above) |
+| `max_chars` | integer | no | `50000` | Cap output length (also via `BROWSER_MCP_MAX_CHARS`) |
 | `tab_id` | string | no | active tab | Tab to read from |
 
 ### `browser_find`
 
-Find text occurrences on the current page. Returns up to `limit` snippets, each with surrounding context and a stable CSS selector suitable for `browser_click` / `browser_type`.
+Find text occurrences on the current page. Returns up to `limit` snippets,
+each with surrounding context and a stable CSS selector suitable for
+`browser_click` / `browser_type`.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | yes | — | Substring to search for in the page's visible text (case-insensitive) |
-| `limit` | integer (1-50) | no | `10` | Maximum number of matches to return |
+| `query` | string | yes | — | Substring (case-insensitive) |
+| `limit` | integer (1–50) | no | `10` | Max matches |
 | `tab_id` | string | no | active tab | Tab to search in |
 
 ### `browser_click`
 
-Click an element using one of several locator strategies. Playwright auto-waits for the element to be visible, enabled, and stable; the server additionally waits for network idle after the click.
+Click an element using one of several locator strategies. Playwright
+auto-waits for the element to be visible, enabled, and stable; the server
+additionally waits for network idle after the click.
 
-**Strategy priority** (most → least reliable): `role` > `label` > `text` > `placeholder` > `testid` > `selector`. Prefer `role` for buttons/links and `label` for form fields — they survive markup changes.
+**Strategy priority** (most → least reliable): `role` > `label` > `text` >
+`placeholder` > `testid` > `selector`. Prefer `role` for buttons/links and
+`label` for form fields.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `target` | string | yes | — | Description of the element (see `target_type`) |
-| `target_type` | `"text"` \| `"role"` \| `"label"` \| `"placeholder"` \| `"testid"` \| `"selector"` | no | `"text"` | Locator strategy |
-| `role` | ARIA role | no | `"button"` when `target_type="role"` | Required for `target_type="role"` |
-| `exact` | boolean | no | `false` | Exact text match vs substring (text/role/label/placeholder) |
+| `target_type` | `text`\|`role`\|`label`\|`placeholder`\|`testid`\|`selector` | no | `text` | Locator strategy |
+| `role` | ARIA role | no | `"button"` when `target_type="role"` | Required for role locator |
+| `exact` | boolean | no | `false` | Exact match vs substring |
 | `tab_id` | string | no | active tab | Tab to act on |
 
 Examples:
 ```json
 { "target": "Sign in", "target_type": "role", "role": "button" }
-{ "target": "Home", "target_type": "role", "role": "link", "exact": true }
-{ "target": "submit-btn", "target_type": "testid" }
+{ "target": "Home",    "target_type": "role", "role": "link", "exact": true }
+{ "target": "submit",  "target_type": "testid" }
 ```
 
 ### `browser_type`
 
-Fill an input/textarea/contenteditable with text. Auto-waits for the field to be actionable before filling. Uses Playwright's fill semantics (existing value is replaced). If `submit=true`, presses Enter after typing.
+Fill an input/textarea/contenteditable with text. Auto-waits for the field to
+be actionable. Uses Playwright's fill semantics (existing value is replaced).
+If `submit=true`, presses Enter after typing.
 
-**Strategy priority** for forms: `label` > `placeholder` > `testid` > `selector`. `label` is the most robust for typical forms.
+**Strategy priority** for forms: `label` > `placeholder` > `testid` > `selector`.
+`label` is the most robust for typical forms.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `target` | string | yes* | — | Description of the input (see `target_type`). *For back-compat accepts `selector` instead |
-| `target_type` | `"text"` \| `"role"` \| `"label"` \| `"placeholder"` \| `"testid"` \| `"selector"` | no | `"selector"` | Locator strategy |
-| `role` | ARIA role | no | — | Required for `target_type="role"` (typically `"textbox"`) |
-| `exact` | boolean | no | `false` | Exact match for text/label/placeholder/role |
+| `target` | string | yes* | — | Target element (see `target_type`). *Accepts `selector` for back-compat |
+| `target_type` | same as click | no | `selector` | Locator strategy |
+| `role` | ARIA role | no | — | For `role` locator (typically `textbox`) |
+| `exact` | boolean | no | `false` | Exact match |
 | `text` | string | yes | — | Text to type |
 | `submit` | boolean | no | `false` | Press Enter after typing |
 | `tab_id` | string | no | active tab | Tab to act on |
-| `selector` | string | no | — | **Deprecated** alias for `target` (with `target_type="selector"`) |
-
-Examples:
-```json
-{ "target": "Email", "target_type": "label", "text": "user@example.com" }
-{ "target": "Search", "target_type": "placeholder", "text": "query", "submit": true }
-```
+| `selector` | string | no | — | **Deprecated** alias for `target` with `target_type=selector` |
 
 ### `browser_expect`
 
-Assert a condition on the page. Retries up to `timeout_ms` before failing, so
-you don't need a separate `browser_wait` for flaky conditions. Returns `PASS`
-or `FAIL` with both `expected` and `actual` values in the error body.
+Assert a condition on the page. Retries up to `timeout_ms` before failing —
+no separate `browser_wait` needed for flaky conditions. Returns `PASS` or
+`FAIL` with `expected` and `actual` in the error body.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `assertion` | `visible` \| `hidden` \| `enabled` \| `disabled` \| `text_equals` \| `text_contains` \| `text_matches` \| `value_equals` \| `count` \| `url_equals` \| `url_matches` \| `title_equals` \| `title_matches` | yes | — | What to assert |
-| `target` | string | depends | — | Element target (required for element/text/count/value assertions) |
-| `target_type` | same as browser_click | no | `"selector"` | Locator strategy |
-| `role` | ARIA role | no | — | For `target_type="role"` |
-| `exact` | boolean | no | `false` | Exact match for text/label/placeholder/role |
-| `expected` | string \| number | depends | — | Required for text/value/count/url/title assertions. For `*_matches` it's a regex |
-| `timeout_ms` | integer (1-60000) | no | `5000` | Retry window |
+| `assertion` | one of 13 (see below) | yes | — | What to assert |
+| `target` | string | depends | — | Element target (required for element / text / count / value assertions) |
+| `target_type` | same as click | no | `selector` | Locator strategy |
+| `role` | ARIA role | no | — | For `role` locator |
+| `exact` | boolean | no | `false` | Exact match |
+| `expected` | string \| number | depends | — | For text/value/count/url/title; for `*_matches` it's a regex |
+| `timeout_ms` | integer (1–60000) | no | `5000` | Retry window |
 | `tab_id` | string | no | active tab | Tab to check |
+
+**Assertions:** `visible`, `hidden`, `enabled`, `disabled`, `text_equals`,
+`text_contains`, `text_matches`, `value_equals`, `count`, `url_equals`,
+`url_matches`, `title_equals`, `title_matches`.
 
 Examples:
 ```json
 { "assertion": "visible", "target": "Sign in", "target_type": "role", "role": "button" }
-{ "assertion": "text_contains", "target": "#status", "target_type": "selector", "expected": "done" }
-{ "assertion": "count", "target": "input", "target_type": "selector", "expected": 3 }
-{ "assertion": "url_matches", "expected": "^https://app\\.example\\.com/orders" }
+{ "assertion": "text_contains", "target": "#status", "expected": "done" }
+{ "assertion": "count", "target": "input", "expected": 3 }
+{ "assertion": "url_matches", "expected": "/dashboard$" }
 ```
-
-### `browser_permissions`
-
-Grant (or clear) browser permissions like camera, microphone, geolocation,
-notifications, clipboard read/write. Use **before** navigating to a site that
-will prompt the user so the prompt never appears.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `grant` | `"all"` \| `"none"` \| array of permissions | yes | — | `"all"` grants every supported permission; `"none"` clears all; array picks specific ones |
-| `origin` | URL | no | current tab's origin | Origin to grant the permissions for (http/https only) |
-| `tab_id` | string | no | active tab | Tab whose origin to use when `origin` is omitted |
-
-Supported permissions: `geolocation`, `midi`, `midi-sysex`, `notifications`,
-`camera`, `microphone`, `background-sync`, `ambient-light-sensor`,
-`accelerometer`, `gyroscope`, `magnetometer`, `clipboard-read`,
-`clipboard-write`, `payment-handler`, `storage-access`.
-
-### `browser_save`
-
-Save the current page to disk.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `format` | `"pdf"` \| `"mhtml"` \| `"html"` | yes | — | Output format |
-| `path` | string | yes | — | Absolute or relative path; parent dirs created automatically |
-| `full_page` | boolean | no | `false` | PDF only: full scrollable page (true) vs just viewport |
-| `landscape` | boolean | no | `false` | PDF only: landscape orientation |
-| `tab_id` | string | no | active tab | Tab to save |
-
-Format notes:
-- **pdf** — Chromium's native print-to-PDF. **Headless only** (Playwright limitation).
-- **mhtml** — single-file archive with all resources (images, CSS, scripts) inlined.
-  Best for offline analysis / later inspection by Claude on a different machine.
-- **html** — raw page HTML as-is (`page.content()`).
 
 ### `browser_snapshot`
 
-Return an **accessibility snapshot** of the page — a compact tree of semantic elements (role, name, value, state) pulled from Chrome's accessibility API via CDP. Much more reliable than scraping Markdown for SPAs or form-heavy pages. Pair with `browser_click` using `target_type="role"` or `target_type="label"` for robust interaction without CSS selectors.
+Return an **accessibility snapshot** — a compact tree of semantic elements
+(role, name, value, state) pulled from Chrome's accessibility API via CDP.
+Much more reliable than scraping Markdown on SPAs.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `selector` | string | no | — | Scope to subtree rooted at this CSS selector |
-| `max_depth` | integer (0-50) | no | — | Truncate deeper children with a `"N hidden children"` summary |
+| `max_depth` | integer (0–50) | no | — | Truncate deeper children with a `"N hidden children"` summary |
 | `interesting_only` | boolean | no | `true` | Prune decorative/hidden nodes (Playwright convention) |
-| `compact` | boolean | no | auto | Keep only interactive elements (buttons, links, inputs, menu items) plus structural landmarks (headings, nav, main, dialog, forms, lists, tables). Auto-enables when `store_as` or `diff_against` is set |
-| `store_as` | string (1-64) | no | — | Save this snapshot under a name for later diffing |
-| `diff_against` | string (1-64) | no | — | Compute a diff vs the named stored snapshot; returns added/removed/changed lists instead of the tree. Combine with `store_as` to roll the baseline forward |
-| `format` | `"yaml"` \| `"json"` | no | `"yaml"` | Compact indented tree (default) or raw AXNode JSON |
+| `compact` | boolean | no | auto | Keep only interactive elements + structural landmarks. Auto-on when diffing |
+| `store_as` | string (1–64) | no | — | Save snapshot under this name for later diffing |
+| `diff_against` | string (1–64) | no | — | Return added / removed / changed vs the stored snapshot |
+| `format` | `"yaml"` \| `"json"` | no | `yaml` | Output format |
 | `tab_id` | string | no | active tab | Tab to snapshot |
 
-Sample output (`yaml`) — decorative `InlineTextBox` nodes are filtered,
-`StaticText` children whose text matches their parent's name are collapsed,
-and anonymous containers like `listitem` inherit their text content as name:
+Sample output (`yaml`) — decorative `InlineTextBox` nodes filtered,
+`StaticText` children whose text matches their parent's name collapsed, and
+anonymous containers (`listitem`, `cell`) inherit their text content as name:
+
 ```
 - RootWebArea "Login" [focused]
   - heading "Login" [level=1]
@@ -305,8 +413,9 @@ and anonymous containers like `listitem` inherit their text content as name:
   - button "Sign in"
 ```
 
-Compact view strips generic wrappers, keeping only what the user can interact with
+Compact strips generic wrappers, keeping only what the user can interact with
 plus structural anchors:
+
 ```
 - form
   - textbox "Email"
@@ -314,7 +423,8 @@ plus structural anchors:
   - button "Sign in"
 ```
 
-Diff output (after `store_as: "before"` → some actions → `diff_against: "before"`):
+Diff output — after `store_as: "before"` → some actions → `diff_against: "before"`:
+
 ```
 ── diff vs "before" ──
 
@@ -328,152 +438,95 @@ Changed (1):
 
 **Caveat:** the diff is path-based (role+name chain from root). Structural
 changes that shift sibling order can cause spurious add/remove pairs on
-otherwise-unchanged nodes. Works best for "I clicked X, what appeared" use cases
-rather than "detect exactly one element changed". Always auto-compact when
-diffing to reduce noise.
+otherwise-unchanged nodes. Works best for "I clicked X, what appeared" rather
+than "detect exactly one element changed". Value changes on textboxes are
+reported as `changed` (value is excluded from node identity).
 
-### `browser_scroll`
+### `browser_permissions`
 
-Scroll the current tab. `up`/`down` scroll by `amount` pixels; `top`/`bottom` jump to the page edges. Returns the scroll position (pixels, percentage) so the caller knows where on the page it is.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `direction` | `"up"` \| `"down"` \| `"top"` \| `"bottom"` | no | `"down"` | Scroll direction |
-| `amount` | integer | no | `800` | Pixels to scroll when direction is `up`/`down` (ignored for `top`/`bottom`) |
-| `tab_id` | string | no | active tab | Tab to act on |
-
-### `browser_back`
-
-Navigate back in the tab's history.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `tab_id` | string | no | Tab to act on; defaults to the active tab |
-
-### `browser_forward`
-
-Navigate forward in the tab's history.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `tab_id` | string | no | Tab to act on; defaults to the active tab |
-
-### `browser_reload`
-
-Reload the current page.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `tab_id` | string | no | Tab to act on; defaults to the active tab |
-
-### `browser_wait`
-
-Wait for an element to reach a given state. Useful for SPAs that load content asynchronously.
+Grant (or clear) browser permissions — camera, microphone, geolocation,
+notifications, clipboard, etc. Use **before** navigating so the prompt never
+appears.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `selector` | string | yes | — | CSS selector to wait for |
-| `state` | `"visible"` \| `"hidden"` \| `"attached"` \| `"detached"` | no | `"visible"` | Element state to wait for |
-| `timeout` | integer | no | `10000` | Max wait time in milliseconds |
-| `tab_id` | string | no | active tab | Tab to act on |
+| `grant` | `"all"` \| `"none"` \| array | yes | — | Which permissions |
+| `origin` | URL | no | current tab's origin | Origin to apply (http/https only) |
+| `tab_id` | string | no | active tab | Tab whose origin to use |
 
-### `browser_evaluate`
+Supported permissions: `geolocation`, `midi`, `midi-sysex`, `notifications`,
+`camera`, `microphone`, `background-sync`, `ambient-light-sensor`,
+`accelerometer`, `gyroscope`, `magnetometer`, `clipboard-read`,
+`clipboard-write`, `payment-handler`, `storage-access`.
 
-Execute a JavaScript expression in the page context and return the JSON-serialized result. Useful for reading `localStorage`, cookies, `window.__NEXT_DATA__`, or extracting data not visible in the DOM.
+### `browser_save`
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `expression` | string | yes | JavaScript expression to evaluate (must return a JSON-serializable value) |
-| `tab_id` | string | no | Tab to act on; defaults to the active tab |
-
-### `browser_tabs_list`
-
-List all open tabs with their `tab_id`, title, and URL. The active tab is marked with `->`. No parameters.
-
-### `browser_tab_switch`
-
-Make the given tab the active one for subsequent tool calls.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `tab_id` | string | yes | Tab to make active (from `browser_tabs_list`) |
-
-### `browser_tab_close`
-
-Close a tab by its ID.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `tab_id` | string | yes | Tab to close |
-
-### `browser_open_visible`
-
-Open a URL in a **visible** (non-headless) Chrome window for manual interaction: signing in, solving a CAPTCHA, or inspecting a page. Cookies/localStorage are saved to the persistent profile. The user closes the window when done — subsequent tools return to the default headless mode.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `url` | string (URL) | yes | URL to open in the visible window |
-
-### `browser_screenshot`
-
-Take a PNG screenshot of the current tab. Default: viewport only. `full_page=true` captures the entire scrollable page. Pass `selector` to capture a specific element (scrolled into view first).
+Save the current page to disk.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `full_page` | boolean | no | `false` | `false`: viewport only. `true`: entire scrollable page. Ignored if `selector` is set |
-| `selector` | string | no | — | Capture only this CSS element. Element is scrolled into view automatically |
-| `tab_id` | string | no | active tab | Tab to capture |
+| `format` | `"pdf"` \| `"mhtml"` \| `"html"` | yes | — | Output format |
+| `path` | string | yes | — | Absolute or relative; parent dirs created |
+| `full_page` | boolean | no | `false` | PDF only: full scrollable page |
+| `landscape` | boolean | no | `false` | PDF only |
+| `tab_id` | string | no | active tab | Tab to save |
+
+- **pdf** — Chromium's native print-to-PDF. **Headless only** (Playwright limitation).
+- **mhtml** — single-file archive with resources inlined. Best for offline handoff.
+- **html** — raw `page.content()`.
 
 ### `browser_upload`
 
-Upload files to an `<input type="file">`. Paths are validated to exist before the call. For `<input multiple>`, pass multiple files; otherwise pass one.
+Upload files to an `<input type="file">`. Paths validated to exist before
+the call. For `<input multiple>` pass several files; otherwise one.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `target` | string | yes | — | The file input element |
-| `target_type` | `"selector"` \| `"label"` \| `"testid"` | no | `"selector"` | `label` is usually cleanest for forms |
-| `files` | array of paths (1-32) | yes | — | Absolute or relative paths. Each validated to be a regular file |
+| `target` | string | yes | — | File input |
+| `target_type` | `selector`\|`label`\|`testid` | no | `selector` | Locator strategy |
+| `files` | array of paths (1–32) | yes | — | Absolute or relative; each validated to be a regular file |
 | `tab_id` | string | no | active tab | Tab to act on |
 
 ### `browser_download_wait`
 
-Trigger a download (via click or navigation) and capture the resulting file to disk.
+Trigger a download (via click or navigation) and capture the resulting file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | `"click"` \| `"navigate"` | no | `"click"` | How to trigger |
-| `target` | string | iff `action="click"` | — | Button/link that starts the download |
-| `target_type` | same as browser_click | no | `"text"` | Locator strategy |
-| `role` | ARIA role | no | — | For `target_type="role"` |
-| `url` | URL | iff `action="navigate"` | — | Direct download URL |
-| `save_to` | string | yes | — | Path to save the file. If it ends with `/` or is a directory, the server-suggested filename is used |
-| `timeout_ms` | integer (1-600000) | no | `60000` | Total wait for download start+complete |
+| `action` | `click` \| `navigate` | no | `click` | How to trigger |
+| `target` | string | iff click | — | Button/link that starts the download |
+| `target_type` | same as click | no | `text` | Locator strategy |
+| `role` | ARIA role | no | — | For role locator |
+| `url` | URL | iff navigate | — | Direct download URL |
+| `save_to` | string | yes | — | Path; ends with `/` or existing dir → server-suggested filename |
+| `timeout_ms` | integer (1–600000) | no | `60000` | Total wait for start + complete |
 | `tab_id` | string | no | active tab | Tab to act on |
 
 ### `browser_cookies`
 
-Read, write, or clear cookies in the current browser profile.
+Read, write, or clear cookies in the profile.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | `"get"` \| `"set"` \| `"clear"` | yes | — | Operation |
-| `urls` | array of URLs | no | — | For `get`: limit to these URLs. Omit for all cookies |
-| `cookies` | array of cookie objects | iff `action="set"` | — | Each needs either (domain+path) or a single url. Fields: `name`, `value`, `domain`, `path`, `url`, `expires`, `httpOnly`, `secure`, `sameSite` |
+| `action` | `get` \| `set` \| `clear` | yes | — | Operation |
+| `urls` | array of URLs | no | — | `get`: scope to these URLs |
+| `cookies` | array of cookie objects | iff set | — | Each needs (domain+path) or a single url. Fields: `name`, `value`, `domain`, `path`, `url`, `expires`, `httpOnly`, `secure`, `sameSite` |
 
 ### `browser_network_log`
 
-Inspect recent network requests. A ring buffer of the last **500 requests** is kept per profile, across all tabs. Every request (including ones from cache, failed, or still in flight) is recorded.
+Inspect recent network requests. Ring buffer of the last 500 per profile,
+across all tabs.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `tab_id` | string | no | all tabs | Only entries from this tab |
-| `limit` | integer (1-500) | no | `100` | Max entries (most recent last) |
+| `limit` | integer (1–500) | no | `100` | Max entries |
 | `url_regex` | string (regex) | no | — | Only URLs matching |
 | `method` | HTTP method | no | — | Filter by method |
 | `failed_only` | boolean | no | `false` | Only net errors (ERR_*, blocked) |
-| `min_status` | integer (100-599) | no | — | Only responses with status ≥ this (use 400 to see errors) |
+| `min_status` | integer (100–599) | no | — | Only responses with status ≥ this |
 
-Output format:
+Output:
 ```
 ── 3 entries (of 47 in ring) ──
 14:16:32.170  200         GET     https://api/v1/users       [xhr, 85ms]
@@ -481,119 +534,322 @@ Output format:
 14:16:32.300  FAIL(...)   POST    https://third-party/track  [fetch, 2013ms]
 ```
 
+### `browser_scroll`
+
+Scroll the current tab. `up`/`down` by `amount` pixels; `top`/`bottom` jumps.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `direction` | `up`\|`down`\|`top`\|`bottom` | no | `down` | Direction |
+| `amount` | integer | no | `800` | Pixels (ignored for top/bottom) |
+| `tab_id` | string | no | active tab | Tab to act on |
+
+### `browser_back` / `browser_forward` / `browser_reload`
+
+Navigate in history. Only `tab_id` parameter. `back`/`forward` report
+`Already at earliest/latest history entry` when there's nowhere to go.
+
+### `browser_wait`
+
+Wait for an element to reach a given state.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `selector` | string | yes | — | CSS selector |
+| `state` | `visible`\|`hidden`\|`attached`\|`detached` | no | `visible` | Target state |
+| `timeout` | integer | no | `10000` | Max wait (ms) |
+| `tab_id` | string | no | active tab | Tab |
+
+### `browser_evaluate`
+
+Execute a JavaScript expression in the page and return the JSON-serialized result.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `expression` | string | yes | JS expression (must return JSON-serializable) |
+| `tab_id` | string | no | Tab |
+
+### `browser_tabs_list` / `browser_tab_switch` / `browser_tab_close`
+
+List tabs (`→` marks active), switch active tab, close tab.
+
+### `browser_open_visible`
+
+Open a URL in a **visible** (non-headless) Chrome window for manual
+interaction — login, CAPTCHA, SSO, 2FA. Cookies/localStorage land in the
+persistent profile. Closing the window returns to headless mode.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | string (URL) | yes | URL to open |
+
+### `browser_screenshot`
+
+Take a PNG screenshot. Default viewport; `full_page=true` for full scroll;
+`selector` for a specific element (scrolled into view first).
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `full_page` | boolean | no | `false` | Viewport vs whole page. Ignored when `selector` set |
+| `selector` | string | no | — | Capture only this element |
+| `tab_id` | string | no | active tab | Tab |
+
+Returns an `image` content block (PNG, base64).
+
 ### `browser_configure`
 
-Change browser settings at runtime. All parameters are optional — pass only what you want to change.
+Change browser settings at runtime. All parameters optional — pass only what
+you want to change. Some changes trigger a browser-context restart (all open
+tabs are closed, response flags it).
 
-Some settings (viewport, color scheme, user-agent, locale) apply instantly without losing state. Others (device scale factor, mobile mode, device presets) require a browser context restart — **all open tabs are closed** and a warning is included in the response.
+**No-restart (per-tab):**
+- `viewport_preset` — `mobile` / `tablet` / `desktop` / `desktop-hd` / `desktop-2k`
+- `viewport_width` + `viewport_height` — custom
+- `color_scheme` — `light` / `dark` / `no-preference`
+- `tab_id` — which tab
 
-#### Per-tab settings (no restart)
+**No-restart (context-wide):**
+- `user_agent` — custom
+- `ua_preset` — `chrome-desktop` / `chrome-mobile` / `safari-desktop` / `safari-mobile` / `firefox-desktop`
+- `locale` — e.g. `en-US`, `ru-RU`, `ja-JP`
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `viewport_preset` | `"mobile"` \| `"tablet"` \| `"desktop"` \| `"desktop-hd"` \| `"desktop-2k"` | Viewport preset. Ignored if `viewport_width`/`viewport_height` or `device_preset` are set |
-| `viewport_width` | integer | Custom viewport width. Must be set together with `viewport_height` |
-| `viewport_height` | integer | Custom viewport height. Must be set together with `viewport_width` |
-| `color_scheme` | `"light"` \| `"dark"` \| `"no-preference"` | Emulated `prefers-color-scheme` |
-| `tab_id` | string | Tab to apply viewport/color_scheme to; defaults to active tab |
+**Restart required:**
+- `device_preset` — `iphone-15` / `iphone-se` / `ipad` / `ipad-pro` / `pixel-8` / `galaxy-s24` / `desktop-retina`
+- `device_scale_factor` — e.g. 2 for retina, 3 for iPhone
+- `is_mobile` — enables `isMobile` + `hasTouch`
 
-#### Context-wide settings (no restart)
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `user_agent` | string | Custom User-Agent string. Overrides `ua_preset` |
-| `ua_preset` | `"chrome-desktop"` \| `"chrome-mobile"` \| `"safari-desktop"` \| `"safari-mobile"` \| `"firefox-desktop"` | User-Agent preset. Ignored if `user_agent` or `device_preset` is set |
-| `locale` | string | Accept-Language locale (e.g. `"en-US"`, `"ru-RU"`, `"ja-JP"`) |
-
-#### Context-level settings (restart required)
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `device_preset` | string | Full device emulation (see table below). Overrides viewport, scale, UA, mobile/touch |
-| `device_scale_factor` | number | Device pixel ratio (e.g. `2` for retina, `3` for iPhone) |
-| `is_mobile` | boolean | Enable mobile mode (`isMobile` + `hasTouch`) |
-
-#### Device presets
+Device presets:
 
 | Preset | Viewport | Scale | Mobile | Touch |
 |--------|----------|-------|--------|-------|
-| `iphone-15` | 393x852 | 3x | yes | yes |
-| `iphone-se` | 375x667 | 2x | yes | yes |
-| `ipad` | 820x1180 | 2x | yes | yes |
-| `ipad-pro` | 1024x1366 | 2x | yes | yes |
-| `pixel-8` | 412x915 | 2.625x | yes | yes |
-| `galaxy-s24` | 360x780 | 3x | yes | yes |
-| `desktop-retina` | 1280x900 | 2x | no | no |
+| `iphone-15` | 393×852 | 3× | yes | yes |
+| `iphone-se` | 375×667 | 2× | yes | yes |
+| `ipad` | 820×1180 | 2× | yes | yes |
+| `ipad-pro` | 1024×1366 | 2× | yes | yes |
+| `pixel-8` | 412×915 | 2.625× | yes | yes |
+| `galaxy-s24` | 360×780 | 3× | yes | yes |
+| `desktop-retina` | 1280×900 | 2× | no | no |
 
-#### Viewport presets
+---
 
-| Preset | Size |
-|--------|------|
-| `mobile` | 375x812 |
-| `tablet` | 768x1024 |
-| `desktop` | 1280x900 |
-| `desktop-hd` | 1920x1080 |
-| `desktop-2k` | 2560x1440 |
+## Configuration
 
-## Environment variables
+All flags are optional — loopback-only defaults work out of the box. Priority:
+**CLI flag > env var > default**.
 
-All environment variables can be overridden by CLI flags (CLI takes priority).
+| Flag | Env | Default | Notes |
+|---|---|---|---|
+| `-p, --port` | `BROWSER_MCP_PORT` | `7777` | |
+| `-H, --host` | `BROWSER_MCP_HOST` | `127.0.0.1` | |
+| `--api-key` | `BROWSER_MCP_API_KEY` | *(off)* | **required when host ≠ loopback** |
+| `--allow-insecure` | `BROWSER_MCP_ALLOW_INSECURE` | `false` | override refuse-to-start |
+| `--cors-origin` | `BROWSER_MCP_CORS_ORIGIN` | `null` | comma-separated origins or `*` |
+| `--max-sessions` | `BROWSER_MCP_MAX_SESSIONS` | `50` | concurrent MCP sessions |
+| `--session-ttl` | `BROWSER_MCP_SESSION_TTL_SEC` | `1800` | idle session reaper (30 min) |
+| `--[no-]headless` | `BROWSER_MCP_HEADLESS` | `1` | `0` = visible |
+| `--[no-]stealth` | `BROWSER_MCP_STEALTH` | `1` | `playwright-extra` + stealth plugin |
+| `--channel` | `BROWSER_MCP_CHANNEL` | `chrome` | Chromium channel (`chrome`, `msedge`, `chromium`) |
+| `--[no-]javascript` | `BROWSER_MCP_JAVASCRIPT` | `1` | |
+| `--viewport` | `BROWSER_MCP_VIEWPORT` | `1280x900` | WxH |
+| `--device-scale-factor` | `BROWSER_MCP_DEVICE_SCALE_FACTOR` | `1` | |
+| `--[no-]mobile` | `BROWSER_MCP_MOBILE` | `0` | |
+| `--user-agent` | `BROWSER_MCP_USER_AGENT` | — | |
+| `--locale` | `BROWSER_MCP_LOCALE` | — | Accept-Language |
+| `--color-scheme` | `BROWSER_MCP_COLOR_SCHEME` | — | |
+| `--proxy` | `BROWSER_MCP_PROXY` | — | e.g. `http://proxy:8080` |
+| `--proxy-bypass` | `BROWSER_MCP_PROXY_BYPASS` | — | comma-separated domains |
+| `--proxy-username` | `BROWSER_MCP_PROXY_USERNAME` | — | |
+| `--proxy-password` | `BROWSER_MCP_PROXY_PASSWORD` | — | |
+| `--tab-ttl` | `BROWSER_MCP_TAB_TTL_SEC` | `600` | inactive tab reaper (10 min) |
+| `--max-chars` | `BROWSER_MCP_MAX_CHARS` | `50000` | cap for `browser_read` |
+| `--max-html-bytes` | `BROWSER_MCP_MAX_HTML_BYTES` | `10000000` | HTML cap before JSDOM parse (OOM guard) |
+| `--settle-ms` | `BROWSER_MCP_SETTLE_MS` | `500` | quiet-window duration |
+| `--settle-timeout-ms` | `BROWSER_MCP_SETTLE_TIMEOUT_MS` | `3000` | hard settle timeout after nav/click |
+| `--profile-dir` | `BROWSER_MCP_PROFILE_DIR` | `~/.browser-mcp/profiles` | profile base dir |
 
-| Variable | Default | CLI flag | Description |
-|----------|---------|----------|-------------|
-| `BROWSER_MCP_PORT` | `7777` | `-p, --port` | HTTP port |
-| `BROWSER_MCP_HOST` | `127.0.0.1` | `-H, --host` | Bind address |
-| `BROWSER_MCP_STEALTH` | `1` | `--[no-]stealth` | Enable stealth plugin (`0` to disable) |
-| `BROWSER_MCP_CHANNEL` | `chrome` | `--channel` | Chromium channel (`chrome`, `msedge`, etc.) |
-| `BROWSER_MCP_HEADLESS` | `1` | `--[no-]headless` | Run headless (`0` for visible) |
-| `BROWSER_MCP_VIEWPORT` | `1280x900` | `--viewport` | Default viewport size (WxH format) |
-| `BROWSER_MCP_DEVICE_SCALE_FACTOR` | `1` | `--device-scale-factor` | Device pixel ratio |
-| `BROWSER_MCP_MOBILE` | `0` | `--[no-]mobile` | Enable mobile emulation (`1` to enable) |
-| `BROWSER_MCP_USER_AGENT` | — | `--user-agent` | Default User-Agent string |
-| `BROWSER_MCP_LOCALE` | — | `--locale` | Default Accept-Language locale |
-| `BROWSER_MCP_COLOR_SCHEME` | — | `--color-scheme` | Default color scheme (`light`, `dark`, `no-preference`) |
-| `BROWSER_MCP_JAVASCRIPT` | `1` | `--[no-]javascript` | Enable JavaScript (`0` to disable) |
-| `BROWSER_MCP_TAB_TTL_SEC` | `600` | `--tab-ttl` | Auto-close inactive tabs after N seconds |
-| `BROWSER_MCP_MAX_CHARS` | `50000` | `--max-chars` | Max characters returned by `browser_read` |
-| `BROWSER_MCP_MAX_HTML_BYTES` | `10000000` | `--max-html-bytes` | Cap raw HTML size before parsing (protects against OOM) |
-| `BROWSER_MCP_SETTLE_MS` | `500` | `--settle-ms` | Quiet-window duration (ms) for request-counting settle |
-| `BROWSER_MCP_SETTLE_TIMEOUT_MS` | `3000` | `--settle-timeout-ms` | Hard timeout (ms) for settle after navigation/click |
-| `BROWSER_MCP_SESSION_TTL_SEC` | `1800` | `--session-ttl` | Session TTL in seconds |
-| `BROWSER_MCP_PROFILE_DIR` | `~/.browser-mcp/profiles` | `--profile-dir` | Base directory for browser profiles |
-| `BROWSER_MCP_API_KEY` | — | `--api-key` | API key for Bearer token authentication. If set, all requests must include `Authorization: Bearer <key>` header |
-| `BROWSER_MCP_ALLOW_INSECURE` | `0` | `--allow-insecure` | Allow non-loopback bind without an API key. Off by default — server exits with code 2 otherwise |
-| `BROWSER_MCP_CORS_ORIGIN` | `null` | `--cors-origin` | Allowed CORS Origin. Comma-separated exact origins, `*`, or `null` (block all browser origins) |
-| `BROWSER_MCP_MAX_SESSIONS` | `50` | `--max-sessions` | Hard cap on concurrent MCP sessions |
-| `BROWSER_MCP_PROXY` | — | `--proxy` | Proxy server URL (e.g. `http://proxy:8080`, `socks5://proxy:1080`) |
-| `BROWSER_MCP_PROXY_BYPASS` | — | `--proxy-bypass` | Comma-separated list of domains to bypass proxy |
-| `BROWSER_MCP_PROXY_USERNAME` | — | `--proxy-username` | Proxy auth username |
-| `BROWSER_MCP_PROXY_PASSWORD` | — | `--proxy-password` | Proxy auth password |
+`browser-mcp --help` prints the full list.
+
+---
+
+## Architecture
+
+### Process topology
+
+browser-mcp is one Node process. Each named profile lazily launches its own
+Chromium (`launchPersistentContext`) on first use. Multiple concurrent MCP
+sessions on the same profile share that context. When the last session on a
+profile expires, the context shuts down.
+
+### HTTP layer
+
+Transport: `@modelcontextprotocol/sdk`'s `StreamableHTTPServerTransport` on
+top of `node:http`. One TCP listener, endpoints `/mcp`, `/mcp/<profile>`, and
+`/health`.
+
+Each MCP client gets a session on `initialize` (random UUID in
+`mcp-session-id`). Sessions have their own `McpServer` instance and transport.
+Idle sessions are reaped after `session_ttl` via a 60 s interval timer.
+
+Hard caps: `max_sessions` (503 on overflow), `MAX_BODY_BYTES = 1 MB` per
+request, per-tool zod `.max(…)` on every user string.
+
+Request pipeline for `/mcp`:
+
+```
+→ URL check (startsWith /mcp) + profile-name validation
+→ Origin check (allowlist; unset Origin = native client, always allowed)
+→ Content-Type check (POST requires application/json)
+→ Auth check (Bearer, timingSafeEqual)
+→ session lookup / create (cap applied on create)
+→ MCP SDK transport.handleRequest
+```
+
+`src/app.ts` exports `createApp()` which returns the `http.Server` — no
+side effects at import time, which makes integration testing trivial.
+`src/index.ts` is a thin bootstrap that calls `createApp().httpServer.listen()`
+and wires SIGINT/SIGTERM.
+
+### BrowserManager
+
+One instance per profile. Holds:
+
+- The `BrowserContext` (Playwright's persistent context).
+- `tabs: Map<tab_id, Page>` — 8-char nanoid per tab.
+- `lastUsed: Map<tab_id, timestamp>` — drives the TTL sweeper.
+- `netLog: NetLogEntry[]` — fixed-capacity ring (500 entries) fed by page
+  `request`/`requestfinished`/`requestfailed` listeners.
+- `snapshotStore: Map<name, AxNode>` — user-named AX snapshots for
+  `browser_snapshot` diffing.
+- `_overrides` — context-level settings from `browser_configure` (applied on
+  next context creation).
+
+Every 60 s the sweeper closes inactive tabs older than `tab_ttl` (the
+currently-active tab is always spared).
+
+On `shutdown()` the context is closed and all Chromium subprocesses exit.
+
+### Accessibility snapshot pipeline
+
+Playwright 1.40 removed `page.accessibility.snapshot()`, so browser-mcp
+pulls the AX tree directly from Chrome DevTools Protocol:
+
+```
+CDP Accessibility.enable
+  ├─ full tree:    Accessibility.getFullAXTree      (for top-level snapshot)
+  └─ subtree:      DOM.querySelector → describeNode → getPartialAXTree
+                   (with fetchRelatives, includes ancestors)
+        ↓
+   cdpAxToTree(nodes, interestingOnly):
+     - pick the root node (parent not in the map)
+     - walk childIds recursively
+     - skip ALWAYS_NOISY_ROLES (InlineTextBox)
+     - if interestingOnly: flatten ignored nodes
+     - collect role/name/value/description + a curated property set
+        ↓
+   collapseRedundantText(node):
+     - if parent is anonymous and has StaticText children, promote their text
+       as the parent's name (gives listitem / cell / row identity)
+     - drop StaticText children whose text matches parent's name exactly
+        ↓
+   filterCompact(node):   (if compact=true)
+     - keep interactive roles (button, link, textbox, checkbox, option, …)
+     - keep structural landmarks (heading, navigation, main, form, dialog,
+       list, listitem, table, row, cell, …)
+     - drop everything else; hoist single interesting descendants
+        ↓
+   renderAxNode(node):   YAML-ish output for the wire
+     - "N  role "name" [attr1=v1, attr2, …]"
+     - indented children
+```
+
+Diff algorithm (`diffSnapshots`):
+
+1. Flatten both trees to `Map<path, AxNode>` where `path = /role|name/role|name/…`
+   (value excluded from the signature so textbox edits don't look like
+   remove+add).
+2. Keys present in `after` but not `before` → `added`.
+3. Keys present in `before` but not `after` → `removed`.
+4. Common keys where `stateSummary(a) !== stateSummary(b)` → `changed`.
+   State summary includes `value`, `checked`, `pressed`, `selected`,
+   `disabled`, `expanded`, `focused`.
+
+### Network ring buffer
+
+```
+page.on("request")         ── reqStart.set(req, { ts, tab_id })
+page.on("requestfinished") ──┐
+page.on("requestfailed")   ──┤── pushNet({ ts, tab_id, method, url, status?, duration_ms?, failed? })
+                              ▼
+                     NetLog ring (capacity 500)
+```
+
+`readNetLog` walks the ring in chronological order, applying tab/method/
+failedOnly/minStatus/urlRegex filters, then slices the most recent `limit`.
+
+### Compact render for `browser_read`
+
+JSDOM-based. `stripCompactDom(document)` deletes nodes matching
+`nav, header, footer, aside, script, style, noscript, template, svg, iframe,
+[role=navigation|banner|contentinfo|complementary|search], [aria-hidden=true],
+[hidden]`. Three flavours:
+
+- `htmlToMarkdown(html, url, max, fallback, compact)` — strips, then
+  Readability → turndown. Falls back to `plainTextFallback` or raw-body
+  turndown when Readability bails.
+- `stripCompactHtml(html, url)` — strips, returns body innerHTML.
+- `stripCompactText(html, url)` — strips, inserts `\n\n` before block
+  elements, collapses inline whitespace, caps blank lines.
+
+### Shutdown
+
+SIGINT/SIGTERM triggers:
+
+```
+1. stop accepting new HTTP connections (httpServer.close)
+2. clear session reaper interval
+3. close all transports + McpServer instances
+4. shutdown each BrowserManager (closes Chromium)
+5. process.exit(0)
+```
+
+---
 
 ## Security model
 
-browser-mcp drives a real Chromium on your machine — anyone who reaches `/mcp`
-can visit arbitrary URLs, exfiltrate logged-in session cookies, solve CAPTCHAs
-in your name. The defaults are chosen so this can't happen by accident:
+browser-mcp drives a real Chromium on your machine — anyone who can reach
+`/mcp` can visit arbitrary URLs, exfiltrate logged-in session cookies, solve
+CAPTCHAs in your name. The defaults are chosen so this can't happen by accident:
 
-- **Refuse-to-start insecure.** If bound to a non-loopback host (`0.0.0.0`,
-  any LAN IP) AND no API key is set, the server exits with code 2 and a loud
-  error. Override with `--allow-insecure` if you understand the risk.
+- **Refuse-to-start insecure.** Bound to a non-loopback host (`0.0.0.0`, any
+  LAN IP) AND no API key set? Exit code 2 with a loud error. Override with
+  `--allow-insecure` if you understand the risk (e.g. isolated VM,
+  intra-Docker-network).
 - **CSRF defense.** `/mcp` POSTs must carry `Content-Type: application/json`
-  (not a CORS-simple type, so browsers must preflight and we don't answer).
-  If an `Origin` header is present, it must match `BROWSER_MCP_CORS_ORIGIN`
-  (default `null` — only native clients like curl and Claude Code allowed).
+  (not a CORS-simple type — browsers must preflight and we don't answer
+  OPTIONS). If an `Origin` header is present, it must match
+  `BROWSER_MCP_CORS_ORIGIN` (default `null` — only native clients like curl
+  and Claude Code, which send no `Origin`, are allowed).
 - **Timing-safe auth.** API key comparison uses `crypto.timingSafeEqual` so
   token guessing doesn't benefit from short-circuit string comparison.
-- **Session cap.** Hard limit on concurrent MCP sessions
-  (`BROWSER_MCP_MAX_SESSIONS`, default 50) prevents spam.
+- **Session cap.** `max_sessions` (default 50) prevents resource exhaustion
+  by a misbehaving client.
+- **Body cap.** 1 MB per request — larger and the connection is closed.
+- **Env isolation.** `BROWSER_MCP_*` env vars (API key, host, caps) are
+  filtered out before Chromium is launched, so page scripts can't fingerprint
+  the supervisor config.
+- **Profile-name regex.** `^[a-zA-Z0-9_-]{1,64}$` — enforced at the HTTP
+  layer, so `../../etc/passwd` can't escape the profile base directory.
+- **No remote code execution surface.** browser-mcp does not eval server-side
+  user input. `browser_evaluate` runs JS in the *page* context (Chromium's
+  sandbox), not on the supervisor.
 
-Docker image binds to `0.0.0.0` and **requires** an API key
-(the refuse-to-start check kicks in without one).
+Docker image binds to `0.0.0.0` and **requires** an API key — the
+refuse-to-start check kicks in without one.
 
-## Health endpoint
+### Health endpoint
 
-`GET /health` returns JSON with status, uptime, session/profile counts, and
-a summary of active config. Unauthenticated, safe to probe. Does not reveal
+`GET /health` returns JSON with status, uptime, session/profile counts, and a
+summary of active config. Unauthenticated, safe to probe. Does not reveal
 URLs visited, cookies, or any page content.
 
 ```json
@@ -606,55 +862,111 @@ URLs visited, cookies, or any page content.
 }
 ```
 
-## How it works
+---
 
-- Uses Playwright with **persistent browser profiles** at `~/.browser-mcp/profiles/<name>/` — cookies and localStorage survive restarts
-- Each URL path (`/mcp/<profile>`) maps to an isolated browser profile; `/mcp` uses the `default` profile
-- Multiple MCP sessions on the same profile share one browser; the browser shuts down when the last session expires
-- **Stealth mode** via `playwright-extra` + `puppeteer-extra-plugin-stealth` to avoid bot detection
-- `browser_read` with `mode=markdown` runs Mozilla Readability to extract the main article, then converts to Markdown via Turndown
-- `browser_configure` changes viewport, user-agent, locale, color scheme, and device emulation at runtime; context-level changes (device scale, mobile mode) trigger an automatic browser restart
-- Inactive tabs are automatically closed after the TTL expires (default 10 min)
-- Sessions expire after inactivity (default 30 min, configurable via `--session-ttl`)
-- `browser_open_visible` shuts down the headless browser and reopens in a visible window for manual interaction (login, CAPTCHA); closing the window returns to headless mode
-- Optional **API key authentication** via `--api-key` or `BROWSER_MCP_API_KEY` — when set, all requests must include `Authorization: Bearer <key>`
-- Configuration priority: CLI flags > environment variables > defaults
+## Testing
+
+```bash
+npm test                  # run 304 tests once (vitest)
+npm run test:watch        # watch mode
+npm run test:coverage     # run + coverage report under coverage/
+npm run test:integration  # Playwright-backed tests only
+```
+
+The suite is split across 26 files:
+
+- **Unit** (11 files): pure-logic tests for `render.ts` (compact helpers),
+  AX-tree manipulation (`cdpAxToTree` with synthetic CDP payloads,
+  `filterCompact`, `diffSnapshots`, `collapseRedundantText`, `renderAxNode`),
+  `config.ts` helpers, `log.ts`, `lib/auth.ts`, netlog ring buffer,
+  `resolveLocator` routing, `insecureStartupProblem` gate, and mock-driven
+  tool handlers for edge branches (snapshot diff overflow, cookies no-flags,
+  PDF headless error, download failure, permissions without http origin).
+- **Integration** (15 files): drive a real headless Chromium via
+  `BrowserManager` against local HTML fixtures. Covers every tool handler,
+  `BrowserManager`'s public surface, the HTTP server (CSRF / auth / session
+  lifecycle / MCP JSON-RPC / session cap), and the AX-tree pipeline end-to-end.
+  An in-process HTTP test server exercises 2xx/4xx/5xx branches and failed
+  network entries.
+
+Integration tests use `BROWSER_MCP_HEADLESS=1` and a throwaway profile
+directory under `os.tmpdir()` — your local `~/.browser-mcp/profiles/` is not
+touched. Set `SKIP_INTEGRATION=1` to skip the Playwright-backed suite
+(useful on environments with no Chromium).
+
+Coverage targets (vitest.config.ts): 90% lines / 85% functions / 80% branches /
+90% statements. The ceiling is bounded by Playwright — code inside
+`page.evaluate(() => …)` runs in Chromium's V8, not Node's, so those blocks
+can't be instrumented even when the integration tests exercise them
+end-to-end.
+
+CI runs the full suite on every push (Linux; `npx playwright install
+--with-deps chromium` in the workflow).
+
+---
 
 ## Docker
 
-Run with Docker:
-
 ```bash
 docker build -t browser-mcp .
-docker run -p 7777:7777 browser-mcp
-docker run -p 7777:7777 -e BROWSER_MCP_API_KEY=secret browser-mcp
+docker run --rm -p 7777:7777 -e BROWSER_MCP_API_KEY=$(openssl rand -hex 32) browser-mcp
 ```
 
-Or with docker-compose:
+Or with compose:
 
 ```bash
+# one-time: create a .env file next to docker-compose.yml with a real key
+echo "BROWSER_MCP_API_KEY=$(openssl rand -hex 32)" > .env
 docker compose up
-# with API key
-BROWSER_MCP_API_KEY=secret docker compose up
 ```
 
-Pre-built images from GitHub Container Registry:
+Pre-built images from GHCR:
 
 ```bash
-docker run -p 7777:7777 ghcr.io/graph-memory/browser-mcp:latest
+docker run --rm -p 7777:7777 -e BROWSER_MCP_API_KEY=$(openssl rand -hex 32) \
+  ghcr.io/graph-memory/browser-mcp:latest
 ```
 
-The container runs Chromium as a dedicated non-root `browser` user. Browser profiles are persisted in a Docker volume (`browser`) at `/home/browser/.browser-mcp`. The image uses Playwright's bundled Chromium (`BROWSER_MCP_CHANNEL=chromium` is set automatically).
+The container:
+- Uses `tini` as PID 1 for zombie reaping when Chromium subprocesses die.
+- Runs Chromium as a dedicated non-root `browser` user.
+- Persists profiles in a Docker volume (`browser`) at `/home/browser/.browser-mcp`.
+- Uses Playwright's bundled Chromium (`BROWSER_MCP_CHANNEL=chromium` set
+  automatically — `chrome` channel isn't available inside the image).
+- Healthcheck: `node -e "fetch('http://127.0.0.1:7777/health')…"` every 30 s.
+- Refuses to start without `BROWSER_MCP_API_KEY` (the image binds to
+  `0.0.0.0`, so the refuse-to-start guard kicks in).
 
-Note: `browser_open_visible` does not work in Docker (no display server). Use it only in local/desktop setups.
+**`browser_open_visible` does not work in Docker** (no display server). Use
+it only in local/desktop setups.
 
-## CI/CD
+---
 
-The project includes GitHub Actions workflows:
+## Platform notes
 
-- **CI** (`.github/workflows/ci.yml`) — builds on every push/PR to `main`, builds and verifies on Node 24
-- **Publish** (`.github/workflows/publish.yml`) — publishes to npm on git tag `v*`. Requires `NPM_TOKEN` secret
-- **Docker** (`.github/workflows/docker.yml`) — builds and pushes Docker image to `ghcr.io` on push to `main` and on tags
+- **macOS / Linux / Windows** — Node ≥ 22. Playwright installs Chromium on
+  first run via the package's `postinstall` hook.
+- **`chrome` channel** requires a locally-installed Chrome. On systems
+  without it, use `--channel=chromium` to fall back to Playwright's bundled
+  build. The Docker image sets this automatically.
+- **Sandboxed Linux containers** may need extra caps for Chromium sandbox.
+  The official Dockerfile handles this; if you're using a different base
+  image, ensure `libnss3 libdbus-1-3 libgbm1 libasound2 libatk-bridge2.0-0`
+  (and friends) are installed.
+
+---
+
+## Development
+
+```bash
+git clone https://github.com/graph-memory/browser-mcp.git
+cd browser-mcp
+npm install
+npm run dev         # run with tsx (no build step)
+npm run build       # compile TypeScript to dist/
+npm test            # full test suite (304 tests)
+npm run test:coverage
+```
 
 ### Release process
 
@@ -666,14 +978,69 @@ npm version patch   # or minor / major
 git push && git push --tags
 ```
 
-This triggers both npm publish and Docker image build automatically.
+Triggers `publish.yml` (npm publish) and `docker.yml` (image build). Both
+run the full test suite first.
 
-## Development
+---
 
-```bash
-npm run dev      # run with tsx (no build step)
-npm run build    # compile TypeScript to dist/
-```
+## FAQ
+
+**Does this replace `WebFetch`?** No — they're complementary. `WebFetch` is
+great for one-shot reads of public pages. browser-mcp is for sessions,
+authentication, interaction, and anything that needs JavaScript / cookies /
+state.
+
+**Why Playwright and not Puppeteer?** Playwright has better role/label
+locators (Accessibility tree first-class), auto-waiting, and cross-browser
+support (though we only ship Chromium). Also the API has been more stable
+over the past year.
+
+**Can I run multiple browser-mcp instances on the same machine?** Yes —
+each on its own port (`--port`). They're independent processes with no
+shared state. Different profile base directories (`--profile-dir`) if you
+want isolation.
+
+**How do I log in to a site that blocks headless browsers?** Run
+`browser_open_visible` with the login URL. Chromium opens visibly with the
+persistent profile so you can solve CAPTCHAs / 2FA. Close the window when
+done — cookies land in the profile. Subsequent calls from your agent run
+headless against the same profile and inherit the session.
+
+**Where are profile data stored?** `~/.browser-mcp/profiles/<name>/` by
+default (override via `--profile-dir` / `BROWSER_MCP_PROFILE_DIR`). These
+are standard Chromium `user-data-dir`s — cookies.sqlite, Local Storage,
+Service Worker caches, etc. Safe to delete to reset a profile.
+
+**The same profile is open in my regular Chrome — can browser-mcp attach?**
+No. Chromium locks its user-data-dir with a singleton file; only one
+process can use a profile at a time. Either close your Chrome or use a
+dedicated browser-mcp profile.
+
+**`browser_save pdf` says "only headless"?** Known Playwright/Chromium
+limitation — print-to-PDF requires the headless browser. If you've disabled
+headless mode (`--no-headless`), switch to `mhtml` (single-file archive) or
+`html` (raw).
+
+**How do I bypass a specific site's bot detection?** Start with the default
+stealth plugin on. If that fails, try `--no-stealth` (some sites detect
+stealth itself). Otherwise, fingerprinting is an arms race you're unlikely
+to win with a generic tool — consider a residential proxy
+(`--proxy socks5://user:pass@host:port`) or manual sessions via
+`browser_open_visible`.
+
+**Can I intercept / mock network requests?** Not yet. Currently you can
+only *observe* requests via `browser_network_log`. Intercept/mock is
+intentionally excluded for now — it's a large surface and hasn't come up
+as a blocker in real use.
+
+**Can I record my session as a Playwright script?** Not yet. Same scope
+decision as network intercept.
+
+**Why no `test:windows` in CI?** Not yet wired up. The code has no POSIX
+specifics outside the Dockerfile, so Windows should work — it's just not
+validated by CI.
+
+---
 
 ## License
 
