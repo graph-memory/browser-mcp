@@ -4,8 +4,15 @@ export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
     testTimeout: 30_000,
+    hookTimeout: 45_000,
     reporters: ["default"],
     pool: "forks",
+    // Each integration file launches its own headless Chromium. Without a cap,
+    // an 8+ core machine runs too many in parallel; the contention makes
+    // Chromium launch/close (in before/afterAll) exceed the hook timeout. Cap
+    // concurrent forks so browser start/stop stays fast and reliable (also
+    // steadier on CI).
+    poolOptions: { forks: { maxForks: 4, minForks: 1 } },
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],

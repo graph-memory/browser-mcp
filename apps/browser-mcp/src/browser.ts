@@ -213,7 +213,11 @@ export class BrowserManager {
           ...(resp?.fromServiceWorker?.() && { from_cache: true }),
         });
         // Capture small texty response bodies for browser_network_body.
-        if (resp) {
+        // http(s) only: file:// bodies aren't network responses worth keeping,
+        // and reading them here leaves floating CDP reads that can stall
+        // context.close() on teardown.
+        const url = req.url();
+        if (resp && (url.startsWith("http://") || url.startsWith("https://"))) {
           const ct = String(resp.headers()["content-type"] ?? "");
           if (/json|text|xml|javascript|urlencoded/i.test(ct)) {
             try {
@@ -222,7 +226,7 @@ export class BrowserManager {
                 this.pushBody({
                   ts: meta?.ts ?? Date.now(),
                   tab_id: id,
-                  url: req.url(),
+                  url,
                   method: req.method(),
                   status: resp.status(),
                   contentType: ct,
@@ -916,7 +920,14 @@ export class BrowserManager {
       await this.contextLaunching.catch(() => {});
     }
     if (this.context) {
-      await this.context.close().catch(() => {});
+      // Bound the close: a wedged Chromium (e.g. mid-request under heavy load)
+      // must not hang the supervisor's SIGTERM path — or test teardown. On full
+      // process exit the child is reaped anyway; in normal operation close()
+      // completes in well under the cap.
+      await Promise.race([
+        this.context.close().catch(() => {}),
+        new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+      ]);
       this.context = null;
       this.tabs.clear();
       this.pageToId.clear();
