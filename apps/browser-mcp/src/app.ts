@@ -36,6 +36,13 @@ import { uploadSchema, makeUploadHandler } from "./tools/upload.js";
 import { downloadSchema, makeDownloadHandler } from "./tools/download.js";
 import { cookiesSchema, makeCookiesHandler } from "./tools/cookies.js";
 import { networkSchema, makeNetworkHandler } from "./tools/network.js";
+import {
+  pressSchema, makePressHandler,
+  hoverSchema, makeHoverHandler,
+  selectOptionSchema, makeSelectOptionHandler,
+  checkSchema, makeCheckHandler,
+  dragSchema, makeDragHandler,
+} from "./tools/actions.js";
 import { logInfo, logError } from "./log.js";
 
 type ToolResult = {
@@ -151,6 +158,41 @@ export function buildServer(browser: BrowserManager): McpServer {
       "field to be actionable before filling.",
     inputSchema: typeSchema,
   }, withLog("browser_type", makeTypeHandler(browser)));
+
+  server.registerTool("browser_press", {
+    description:
+      "Press a key or chord (Playwright syntax: \"Enter\", \"Tab\", \"Escape\", \"ArrowDown\", " +
+      "\"Control+A\", \"Meta+C\"). With `target`, focuses that element first; otherwise sends to the page.",
+    inputSchema: pressSchema,
+  }, withLog("browser_press", makePressHandler(browser)));
+
+  server.registerTool("browser_hover", {
+    description:
+      "Hover the mouse over an element (to reveal menus, tooltips, or hover-only controls). " +
+      "Same locator strategies as browser_click.",
+    inputSchema: hoverSchema,
+  }, withLog("browser_hover", makeHoverHandler(browser)));
+
+  server.registerTool("browser_select_option", {
+    description:
+      "Select option(s) in a native <select> by value (default), visible label, or zero-based index. " +
+      "More reliable than clicking options. For <select multiple> pass several values.",
+    inputSchema: selectOptionSchema,
+  }, withLog("browser_select_option", makeSelectOptionHandler(browser)));
+
+  server.registerTool("browser_check", {
+    description:
+      "Set a checkbox or radio to checked/unchecked. Idempotent (unlike browser_click, which toggles): " +
+      "checked=true ensures checked, checked=false ensures unchecked, no-op if already in that state.",
+    inputSchema: checkSchema,
+  }, withLog("browser_check", makeCheckHandler(browser)));
+
+  server.registerTool("browser_drag", {
+    description:
+      "Drag one element onto another (HTML5 drag-and-drop / sortable lists). Specify source and target " +
+      "with their own locator strategies.",
+    inputSchema: dragSchema,
+  }, withLog("browser_drag", makeDragHandler(browser)));
 
   server.registerTool("browser_scroll", {
     description:

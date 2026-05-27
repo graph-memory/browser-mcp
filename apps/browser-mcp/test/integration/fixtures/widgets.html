@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><title>Widgets test</title>
+  <style>
+    /* hover-reveal: #menu shows the panel only while hovered */
+    #menu .panel { display: none; }
+    #menu:hover .panel { display: block; }
+  </style>
+</head>
+<body>
+  <h1>Widgets</h1>
+
+  <!-- native select -->
+  <label for="fruit">Fruit</label>
+  <select id="fruit" name="fruit">
+    <option value="a">Apple</option>
+    <option value="b">Banana</option>
+    <option value="c">Cherry</option>
+  </select>
+
+  <!-- checkbox + radios -->
+  <label><input type="checkbox" id="agree"> I agree</label>
+  <fieldset id="plan">
+    <label><input type="radio" name="plan" value="free"> Free</label>
+    <label><input type="radio" name="plan" value="pro"> Pro</label>
+  </fieldset>
+
+  <!-- hover-reveal menu -->
+  <div id="menu">
+    <button type="button">Menu</button>
+    <div class="panel" id="panel">Revealed item</div>
+  </div>
+
+  <!-- drag and drop -->
+  <div id="src" draggable="true">DRAG ME</div>
+  <div id="drop">drop here</div>
+
+  <!-- text input for press/keyboard tests -->
+  <label>Note <input type="text" id="note" name="note"></label>
+
+  <script>
+    // HTML5 drag-and-drop: mark the dropzone on drop.
+    const src = document.getElementById("src");
+    const drop = document.getElementById("drop");
+    src.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", "DRAG ME"); });
+    drop.addEventListener("dragover", (e) => e.preventDefault());
+    drop.addEventListener("drop", (e) => {
+      e.preventDefault();
+      drop.textContent = "dropped: " + e.dataTransfer.getData("text/plain");
+      drop.classList.add("filled");
+    });
+  </script>
+</body>
+</html>

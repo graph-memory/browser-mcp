@@ -395,6 +395,67 @@ export class BrowserManager {
     }
   }
 
+  /** Press a key / chord. With a target, focus it first (locator.press); otherwise page-level. */
+  async press(key: string, target: string | undefined, targetType: LocatorType, tabId?: string, opts?: LocatorOpts): Promise<void> {
+    const page = this.getPage(tabId);
+    if (target) {
+      await resolveLocator(page, target, targetType, opts).first().press(key, { timeout: 10_000 });
+    } else {
+      await page.keyboard.press(key);
+    }
+    await this.settle(page);
+  }
+
+  async hover(target: string, targetType: LocatorType, tabId?: string, opts?: LocatorOpts): Promise<void> {
+    const page = this.getPage(tabId);
+    await resolveLocator(page, target, targetType, opts).first().hover({ timeout: 10_000 });
+  }
+
+  /** Select option(s) in a native <select> by value/label/index. Returns the selected values. */
+  async selectOption(
+    target: string,
+    targetType: LocatorType,
+    by: "value" | "label" | "index",
+    values: string[],
+    tabId?: string,
+    opts?: LocatorOpts,
+  ): Promise<string[]> {
+    const page = this.getPage(tabId);
+    const loc = resolveLocator(page, target, targetType, opts).first();
+    const arg =
+      by === "label" ? values.map((v) => ({ label: v }))
+      : by === "index" ? values.map((v) => ({ index: Number(v) }))
+      : values.map((v) => ({ value: v }));
+    const selected = await loc.selectOption(arg, { timeout: 10_000 });
+    await this.settle(page);
+    return selected;
+  }
+
+  /** Idempotent check/uncheck for checkboxes/radios (unlike click, which toggles). */
+  async setChecked(target: string, targetType: LocatorType, checked: boolean, tabId?: string, opts?: LocatorOpts): Promise<void> {
+    const page = this.getPage(tabId);
+    const loc = resolveLocator(page, target, targetType, opts).first();
+    if (checked) await loc.check({ timeout: 10_000 });
+    else await loc.uncheck({ timeout: 10_000 });
+    await this.settle(page);
+  }
+
+  async drag(
+    source: string,
+    sourceType: LocatorType,
+    target: string,
+    targetType: LocatorType,
+    tabId?: string,
+    sourceOpts?: LocatorOpts,
+    targetOpts?: LocatorOpts,
+  ): Promise<void> {
+    const page = this.getPage(tabId);
+    const src = resolveLocator(page, source, sourceType, sourceOpts).first();
+    const dst = resolveLocator(page, target, targetType, targetOpts).first();
+    await src.dragTo(dst, { timeout: 10_000 });
+    await this.settle(page);
+  }
+
   async scroll(
     direction: "up" | "down" | "top" | "bottom",
     amount: number,
