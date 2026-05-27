@@ -703,7 +703,7 @@ tabs are closed, response flags it).
 - `user_agent` — custom
 - `ua_preset` — `chrome-desktop` / `chrome-mobile` / `safari-desktop` / `safari-mobile` / `firefox-desktop`
 - `locale` — e.g. `en-US`, `ru-RU`, `ja-JP`
-- `extra_headers` — custom HTTP headers (`{ "Authorization": "Bearer …" }`) merged into all future requests
+- `extra_headers` — custom HTTP headers (`{ "Authorization": "Bearer …" }`) merged into all future requests. Shares the context's header set, so an explicit `User-Agent` / `Accept-Language` here overrides what `user_agent` / `locale` set.
 
 **Restart required:**
 - `device_preset` — `iphone-15` / `iphone-se` / `ipad` / `ipad-pro` / `pixel-8` / `galaxy-s24` / `desktop-retina`
@@ -769,6 +769,7 @@ All flags are optional — loopback-only defaults work out of the box. Priority:
 | `BROWSER_MCP_ALLOW_ANY_UPLOAD_PATH` | `0` | Disable read sandbox for `browser_upload` |
 | `BROWSER_MCP_SANDBOX_DIR` | `~/.browser-mcp` | Base dir for download / upload sandboxes |
 | `BROWSER_MCP_READ_BODY_TIMEOUT_MS` | `10000` | Wall-clock cap on HTTP body read (slow-loris) |
+| `BROWSER_MCP_NO_NETWORK_BODY` | `0` | `1` disables passive response-body capture for `browser_network_body` |
 
 `browser-mcp --help` prints the CLI list.
 
@@ -973,12 +974,22 @@ write primitive. Default-deny, opt-in where you need it:
   any file your uid can read.
 - **Sandbox base dir.** Override both sandboxes' root via
   `BROWSER_MCP_SANDBOX_DIR` (defaults to `~/.browser-mcp`).
-- **Log redaction.** Tool args containing cookie values, typed text, JS
-  expressions, and filesystem paths are redacted in `withLog` stderr output
-  so centralized log collectors don't pick up passwords or session tokens.
-- **`browser_evaluate` result cap.** Output truncated at
+- **Log redaction.** Tool args carrying secrets — cookie values, typed text
+  (`browser_type`, `browser_fill_form`), JS expressions, filesystem paths,
+  custom headers (`browser_configure.extra_headers`), `browser_storage` values,
+  and `browser_handle_dialog` prompt text — are redacted in `withLog` stderr
+  output so centralized log collectors don't pick up passwords or session tokens.
+- **`browser_evaluate` / `browser_storage` result cap.** Output truncated at
   `BROWSER_MCP_MAX_CHARS` (50 000 by default) so a page returning a 1 GB
   array can't OOM the supervisor.
+- **Passive response-body capture.** `browser_network_body` works by buffering
+  small texty/JSON responses (last 50, ≤256 KB each) **in memory** as they
+  arrive — so a logged-in API's JSON (tokens, PII) is retrievable for the
+  session lifetime, within the same trust boundary as the profile's cookies.
+  Bodies are never written to disk or logs. Set `BROWSER_MCP_NO_NETWORK_BODY=1`
+  to disable capture entirely. Per-profile (shared across sessions on that
+  profile), like the network and console rings — use a separate named profile
+  to isolate concurrent clients.
 
 ### Not-attack-surface by construction
 

@@ -215,9 +215,11 @@ export class BrowserManager {
         // Capture small texty response bodies for browser_network_body.
         // http(s) only: file:// bodies aren't network responses worth keeping,
         // and reading them here leaves floating CDP reads that can stall
-        // context.close() on teardown.
+        // context.close() on teardown. Opt out entirely with
+        // BROWSER_MCP_NO_NETWORK_BODY=1 (no passive body buffering).
         const url = req.url();
-        if (resp && (url.startsWith("http://") || url.startsWith("https://"))) {
+        const captureBodies = process.env.BROWSER_MCP_NO_NETWORK_BODY !== "1";
+        if (resp && captureBodies && (url.startsWith("http://") || url.startsWith("https://"))) {
           const ct = String(resp.headers()["content-type"] ?? "");
           if (/json|text|xml|javascript|urlencoded/i.test(ct)) {
             try {

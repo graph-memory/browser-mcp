@@ -17,6 +17,8 @@ describe.skipIf(SKIP)("tools/network_body — captured response bodies", () => {
     server = await startTestServer({
       "/data": { headers: { "content-type": "application/json" }, body: JSON.stringify({ hello: "world", n: 42 }) },
       "/page": { body: "<!doctype html><script>fetch('/data').then(r => r.json()).then(d => { window.__d = d; });</script>" },
+      "/data2": { headers: { "content-type": "application/json" }, body: JSON.stringify({ only: "when-enabled" }) },
+      "/page2": { body: "<!doctype html><script>fetch('/data2');</script>" },
     });
     ({ BrowserManager } = await import("../../src/browser.js"));
     const o = await import("../../src/tools/open.js");
@@ -45,5 +47,18 @@ describe.skipIf(SKIP)("tools/network_body — captured response bodies", () => {
     await open({ url: server.url("/page") });
     const r = await networkBody({ url_regex: "/nonexistent-xyz", index: 0 });
     expect(textOf(r)).toContain("no captured response body");
+  }, 60_000);
+
+  it("BROWSER_MCP_NO_NETWORK_BODY=1 disables passive capture", async () => {
+    process.env.BROWSER_MCP_NO_NETWORK_BODY = "1";
+    try {
+      await open({ url: server.url("/page2") });
+      await new Promise((r) => setTimeout(r, 200));
+      // /data2 is only fetched here, with capture disabled → never buffered.
+      const r = await networkBody({ url_regex: "/data2$", index: 0 });
+      expect(textOf(r)).toContain("no captured response body");
+    } finally {
+      delete process.env.BROWSER_MCP_NO_NETWORK_BODY;
+    }
   }, 60_000);
 });
