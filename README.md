@@ -832,8 +832,8 @@ Each MCP client gets a session on `initialize` (random UUID in
 `mcp-session-id`). Sessions have their own `McpServer` instance and transport.
 Idle sessions are reaped after `session_ttl` via a 60 s interval timer.
 
-Hard caps: `max_sessions` (503 on overflow), `MAX_BODY_BYTES = 1 MB` per
-request, per-tool zod `.max(…)` on every user string.
+Hard caps: `max_sessions` (503 on overflow), max request body (1 MB default,
+`BROWSER_MCP_MAX_REQUEST_BYTES`), per-tool zod `.max(…)` on every user string.
 
 Request pipeline for `/mcp`:
 
@@ -858,14 +858,20 @@ One instance per profile, shared by every session on that profile. Holds:
 - The `BrowserContext` (Playwright's persistent context).
 - `tabs: Map<tab_id, Page>` — 8-char nanoid per tab.
 - `lastUsed: Map<tab_id, timestamp>` — drives the TTL sweeper.
-- `netLog` — fixed-capacity ring (500 entries) fed by page
+- `netLog` — ring (default 500 entries) fed by page
   `request`/`requestfinished`/`requestfailed` listeners.
-- `consoleLog` — ring (500) of `console.*` messages plus uncaught `pageerror`s,
-  fed by `page.on("console")` / `page.on("pageerror")` (`browser_console_log`).
-- `bodyLog` — ring (50) of small texty/JSON response bodies (≤256 KB each),
-  captured passively in `requestfinished` (`browser_network_body`).
+- `consoleLog` — ring (default 500) of `console.*` messages plus uncaught
+  `pageerror`s, fed by `page.on("console")` / `page.on("pageerror")`
+  (`browser_console_log`).
+- `bodyLog` — ring (default 50) of small texty/JSON response bodies
+  (≤256 KB each), captured passively in `requestfinished`
+  (`browser_network_body`).
 - `_overrides` — context-level settings from `browser_configure` (applied on
   next context creation).
+
+Ring capacities and the per-body size cap are tunable — see
+[Resource tuning](#configuration) (`BROWSER_MCP_NET_RING` / `CONSOLE_RING` /
+`BODY_RING` / `BODY_MAX_BYTES`).
 
 Every 60 s the sweeper closes inactive tabs older than `tab_ttl` (the
 currently-active tab is always spared).
@@ -1085,17 +1091,18 @@ npm run test:coverage     # run + coverage report under coverage/
 npm run test:integration  # Playwright-backed tests only
 ```
 
-The suite is split across 42 files:
+The suite is split across 43 files:
 
-- **Unit** (17 files): pure-logic tests for `render.ts` (compact helpers),
+- **Unit** (18 files): pure-logic tests for `render.ts` (compact helpers),
   AX-tree manipulation (`cdpAxToTree` with synthetic CDP payloads,
   `filterCompact`, `diffSnapshots`, `collapseRedundantText`, `renderAxNode`),
-  `config.ts` helpers, `log.ts`, `lib/auth.ts`, `lib/url-safety.ts`,
-  `lib/path-sandbox.ts`, log redaction, profile-name validation, netlog ring
-  buffer, `resolveLocator` routing, `insecureStartupProblem` gate, and
-  mock-driven tool handlers for edge branches (snapshot diff overflow, cookies
-  no-flags, PDF headless error, download failure, permissions without http
-  origin).
+  `config.ts` helpers, tunable config wiring (action/nav timeouts, ring
+  capacities, request-body cap), `log.ts`, `lib/auth.ts`, `lib/url-safety.ts`,
+  `lib/path-sandbox.ts`, log redaction, profile-name validation, netlog and
+  console ring buffers, `resolveLocator` routing, `insecureStartupProblem` gate,
+  and mock-driven tool handlers for edge branches (snapshot diff overflow,
+  cookies no-flags, PDF headless error, download failure, permissions without
+  http origin).
 - **Integration** (25 files): drive a real headless Chromium via
   `BrowserManager` against local HTML fixtures. Covers every tool handler,
   `BrowserManager`'s public surface (including proxy-configured context), the
