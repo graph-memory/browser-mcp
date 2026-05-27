@@ -31,9 +31,12 @@ export function makeUploadHandler(browser: BrowserManager) {
   }) => {
     const absFiles = args.files.map((f) => resolveReadPath(f, browser.profileName));
     for (const f of absFiles) {
-      if (!existsSync(f)) throw new Error(`file not found: ${f}`);
-      const s = statSync(f);
-      if (!s.isFile()) throw new Error(`not a regular file: ${f}`);
+      if (!existsSync(f)) {
+        return { isError: true, content: [{ type: "text" as const, text: `file not found: ${f}` }] };
+      }
+      if (!statSync(f).isFile()) {
+        return { isError: true, content: [{ type: "text" as const, text: `not a regular file: ${f}` }] };
+      }
     }
 
     const page = browser.getPage(args.tab_id);

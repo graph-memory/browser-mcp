@@ -46,18 +46,23 @@ export function makeDownloadHandler(browser: BrowserManager) {
     const page = browser.getPage(args.tab_id);
     const timeout = args.timeout_ms ?? 60_000;
 
+    if (args.action === "click" && !args.target) {
+      return { isError: true, content: [{ type: "text" as const, text: "target required for action='click'" }] };
+    }
+    if (args.action === "navigate" && !args.url) {
+      return { isError: true, content: [{ type: "text" as const, text: "url required for action='navigate'" }] };
+    }
+
     const [download] = await Promise.all([
       page.waitForEvent("download", { timeout }),
       (async () => {
         if (args.action === "click") {
-          if (!args.target) throw new Error("target required for action='click'");
-          const loc = resolveLocator(page, args.target, args.target_type, { role: args.role }).first();
+          const loc = resolveLocator(page, args.target!, args.target_type, { role: args.role }).first();
           await loc.click({ timeout: 10_000 });
         } else {
-          if (!args.url) throw new Error("url required for action='navigate'");
-          assertNavigableUrl(args.url);
+          assertNavigableUrl(args.url!);
           // Don't use goto — downloads would never resolve the navigation.
-          await page.evaluate((u) => { window.location.href = u; }, args.url);
+          await page.evaluate((u) => { window.location.href = u; }, args.url!);
         }
       })(),
     ]);

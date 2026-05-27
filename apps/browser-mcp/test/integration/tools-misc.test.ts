@@ -89,12 +89,16 @@ describe.skipIf(SKIP)("tools/{network,cookies,permissions,visual} — mixed", ()
     expect(t).toContain("SameSite=Lax");
   });
 
-  it("cookies set — throws when 'cookies' array is missing", async () => {
-    await expect(cookies({ action: "set" })).rejects.toThrow(/required/);
+  it("cookies set — returns isError when 'cookies' array is missing", async () => {
+    const r = await cookies({ action: "set" });
+    expect(isToolError(r)).toBe(true);
+    expect(textOf(r)).toMatch(/required/);
   });
 
-  it("cookies set — throws when 'cookies' array is empty", async () => {
-    await expect(cookies({ action: "set", cookies: [] })).rejects.toThrow(/required/);
+  it("cookies set — returns isError when 'cookies' array is empty", async () => {
+    const r = await cookies({ action: "set", cookies: [] });
+    expect(isToolError(r)).toBe(true);
+    expect(textOf(r)).toMatch(/required/);
   });
 
   it("cookies — session cookie (no expires) shows expires=session", async () => {

@@ -62,7 +62,7 @@ export function makeCookiesHandler(browser: BrowserManager) {
 
     if (args.action === "set") {
       if (!args.cookies || args.cookies.length === 0) {
-        throw new Error("`cookies` array required for action='set'");
+        return { isError: true, content: [{ type: "text" as const, text: "`cookies` array required for action='set'" }] };
       }
       await ctx.addCookies(args.cookies);
       return {

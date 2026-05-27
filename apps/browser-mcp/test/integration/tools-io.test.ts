@@ -97,18 +97,18 @@ describe.skipIf(SKIP)("tools/{save,upload,download} — file IO", () => {
     expect(textOf(r)).toContain("Uploaded 2 files");
   }, 60_000);
 
-  it("upload — throws when a file does not exist", async () => {
+  it("upload — returns isError when a file does not exist", async () => {
     await open({ url: fixtureUrl("downloadable.html") });
-    await expect(
-      upload({ target: "#up", target_type: "selector", files: [join(outDir, "ghost.txt")] }),
-    ).rejects.toThrow(/file not found/);
+    const r = await upload({ target: "#up", target_type: "selector", files: [join(outDir, "ghost.txt")] });
+    expect(isToolError(r)).toBe(true);
+    expect(textOf(r)).toMatch(/file not found/);
   }, 60_000);
 
-  it("upload — throws when the path points to a directory", async () => {
+  it("upload — returns isError when the path points to a directory", async () => {
     await open({ url: fixtureUrl("downloadable.html") });
-    await expect(
-      upload({ target: "#up", target_type: "selector", files: [outDir] }),
-    ).rejects.toThrow(/not a regular file/);
+    const r = await upload({ target: "#up", target_type: "selector", files: [outDir] });
+    expect(isToolError(r)).toBe(true);
+    expect(textOf(r)).toMatch(/not a regular file/);
   }, 60_000);
 
   // --- download ---
@@ -140,17 +140,17 @@ describe.skipIf(SKIP)("tools/{save,upload,download} — file IO", () => {
     expect(existsSync(join(outDir, "hello.txt"))).toBe(true);
   }, 60_000);
 
-  it("download — action='click' without target throws", async () => {
+  it("download — action='click' without target returns isError", async () => {
     await open({ url: fixtureUrl("downloadable.html") });
-    await expect(
-      download({ action: "click", target_type: "selector", save_to: join(outDir, "oops.txt") }),
-    ).rejects.toThrow(/target required/);
+    const r = await download({ action: "click", target_type: "selector", save_to: join(outDir, "oops.txt") });
+    expect(isToolError(r)).toBe(true);
+    expect(textOf(r)).toMatch(/target required/);
   }, 60_000);
 
-  it("download — action='navigate' without url throws", async () => {
+  it("download — action='navigate' without url returns isError", async () => {
     await open({ url: fixtureUrl("downloadable.html") });
-    await expect(
-      download({ action: "navigate", target_type: "selector", save_to: join(outDir, "oops.txt") }),
-    ).rejects.toThrow(/url required/);
+    const r = await download({ action: "navigate", target_type: "selector", save_to: join(outDir, "oops.txt") });
+    expect(isToolError(r)).toBe(true);
+    expect(textOf(r)).toMatch(/url required/);
   }, 60_000);
 });

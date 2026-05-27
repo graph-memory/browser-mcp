@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { rmSync } from "node:fs";
-import { bootIntegrationEnv, fixtureUrl, textOf } from "./helpers.js";
+import { bootIntegrationEnv, fixtureUrl, textOf, isToolError } from "./helpers.js";
 
 const SKIP = process.env.SKIP_INTEGRATION === "1";
 const { profileDir, profileName } = bootIntegrationEnv("interact");
@@ -92,9 +92,11 @@ describe.skipIf(SKIP)("tools/interact — click, type, scroll, find, wait, evalu
     expect(textOf(r)).toContain("Typed into");
   }, 60_000);
 
-  it("type throws when neither target nor selector is provided", async () => {
+  it("type returns isError when neither target nor selector is provided", async () => {
     await open({ url: fixtureUrl("form.html") });
-    await expect(type({ target_type: "selector", text: "x", submit: false })).rejects.toThrow(/requires/);
+    const r = await type({ target_type: "selector", text: "x", submit: false });
+    expect(isToolError(r)).toBe(true);
+    expect(textOf(r)).toMatch(/requires/);
   }, 60_000);
 
   it("scroll 'down' reports scroll position", async () => {

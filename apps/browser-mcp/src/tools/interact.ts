@@ -104,7 +104,10 @@ export function makeTypeHandler(browser: BrowserManager) {
   }) => {
     const actualTarget = target ?? selector;
     if (!actualTarget) {
-      throw new Error("browser_type requires `target` (preferred) or `selector` (legacy)");
+      return {
+        isError: true,
+        content: [{ type: "text" as const, text: "browser_type requires `target` (preferred) or `selector` (legacy)" }],
+      };
     }
     await browser.type(actualTarget, text, submit, tab_id, target_type, { role, exact });
     const suffix = target_type === "role" && role ? ` role=${role}` : "";
