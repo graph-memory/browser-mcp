@@ -63,24 +63,19 @@ export const typeSchema = {
     .describe("Target to fill. See target_type for semantics."),
   target_type: z
     .enum(LOCATOR_TYPES)
-    .default("selector")
+    .default("text")
     .describe(
-      "Locator strategy. Default 'selector' (CSS) for backward compat. " +
-      "Prefer 'label' for forms (e.g. target=\"Email\") — most robust against markup changes.",
+      "Locator strategy (default 'text'). Prefer 'label' for form fields " +
+      "(e.g. target=\"Email\") — most robust against markup changes; 'selector' is the CSS escape hatch.",
     ),
   role: z.enum(ROLES).optional().describe("ARIA role when target_type='role'."),
   exact: z.boolean().default(false).describe("Exact match for text/label/placeholder/role."),
-  text: z.string().describe("Text to type. Existing value is replaced (fill semantics)."),
+  text: z.string().max(100_000).describe("Text to type. Existing value is replaced (fill semantics)."),
   submit: z
     .boolean()
     .default(false)
     .describe("Press Enter after typing (e.g. to submit a search or login form)"),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
-  // Legacy alias
-  selector: z
-    .string()
-    .optional()
-    .describe("Deprecated alias for `target` (when target_type='selector'). Kept for compatibility."),
 };
 export function makeTypeHandler(browser: BrowserManager) {
   return async ({
@@ -91,29 +86,20 @@ export function makeTypeHandler(browser: BrowserManager) {
     text,
     submit,
     tab_id,
-    selector,
   }: {
-    target?: string;
+    target: string;
     target_type: LocatorType;
     role?: string;
     exact?: boolean;
     text: string;
     submit: boolean;
     tab_id?: string;
-    selector?: string;
   }) => {
-    const actualTarget = target ?? selector;
-    if (!actualTarget) {
-      return {
-        isError: true,
-        content: [{ type: "text" as const, text: "browser_type requires `target` (preferred) or `selector` (legacy)" }],
-      };
-    }
-    await browser.type(actualTarget, text, submit, tab_id, target_type, { role, exact });
+    await browser.type(target, text, submit, tab_id, target_type, { role, exact });
     const suffix = target_type === "role" && role ? ` role=${role}` : "";
     return {
       content: [
-        { type: "text" as const, text: `Typed into (${target_type}${suffix}): ${actualTarget}${submit ? " + Enter" : ""}` },
+        { type: "text" as const, text: `Typed into (${target_type}${suffix}): ${target}${submit ? " + Enter" : ""}` },
       ],
     };
   };

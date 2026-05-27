@@ -18,8 +18,8 @@ export const expectSchema = {
   ),
   target: z.string().max(2_048).optional()
     .describe("Element target. Required for all element/text/count assertions; ignored for url_* and title_*."),
-  target_type: z.enum(LOCATOR_TYPES).default("selector")
-    .describe("Locator strategy for `target`."),
+  target_type: z.enum(LOCATOR_TYPES).default("text")
+    .describe("Locator strategy for `target` (default 'text'; 'selector' for CSS)."),
   role: z.enum(ROLES).optional().describe("ARIA role when target_type='role'."),
   exact: z.boolean().default(false).describe("Exact match for text/role/label/placeholder locators."),
   expected: z.union([z.string().max(4_096), z.number()]).optional()

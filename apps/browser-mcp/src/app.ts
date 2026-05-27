@@ -158,10 +158,10 @@ export function buildServer(browser: BrowserManager): McpServer {
 
   server.registerTool("browser_type", {
     description:
-      "Fill an input/textarea/contenteditable with text. target_type picks the locator strategy; " +
-      "default is `selector` (CSS) for compatibility, but `label` is usually more robust for forms " +
-      "(e.g. target=\"Email\"). If submit=true, presses Enter after typing. Auto-waits for the " +
-      "field to be actionable before filling.",
+      "Fill an input/textarea/contenteditable with text. target_type picks the locator strategy " +
+      "(default `text`); `label` is usually most robust for forms (e.g. target=\"Email\"), " +
+      "`selector` is the CSS escape hatch. If submit=true, presses Enter after typing. Auto-waits " +
+      "for the field to be actionable before filling.",
     inputSchema: typeSchema,
   }, withLog("browser_type", makeTypeHandler(browser)));
 

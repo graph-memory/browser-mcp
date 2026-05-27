@@ -81,22 +81,15 @@ describe.skipIf(SKIP)("tools/interact — click, type, scroll, find, wait, evalu
     expect(textOf(r)).toContain("role=textbox");
   }, 60_000);
 
-  it("type accepts the legacy `selector` alias", async () => {
+  it("type with explicit selector (CSS escape hatch) still works", async () => {
     await open({ url: fixtureUrl("form.html") });
     const r = await type({
+      target: 'input[name="email"]',
       target_type: "selector",
-      selector: 'input[name="email"]',
-      text: "legacy@example.com",
+      text: "css@example.com",
       submit: false,
     });
-    expect(textOf(r)).toContain("Typed into");
-  }, 60_000);
-
-  it("type returns isError when neither target nor selector is provided", async () => {
-    await open({ url: fixtureUrl("form.html") });
-    const r = await type({ target_type: "selector", text: "x", submit: false });
-    expect(isToolError(r)).toBe(true);
-    expect(textOf(r)).toMatch(/requires/);
+    expect(textOf(r)).toContain("Typed into (selector)");
   }, 60_000);
 
   it("scroll 'down' reports scroll position", async () => {
