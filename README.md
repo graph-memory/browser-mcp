@@ -215,7 +215,7 @@ browser_cookies       { action: "get", urls: ["https://example.com/"] }
   Hard cap on concurrent sessions (`max_sessions`, default 50).
 - **Multi-arch Docker image.** linux/amd64 + linux/arm64, non-root `browser`
   user, `tini` as PID 1 for zombie reaping, healthcheck wired to `/health`.
-- **Full test suite.** 364 tests (unit + integration against a real headless
+- **Full test suite.** 365 tests (unit + integration against a real headless
   Chromium) covering every tool handler, the HTTP server (auth/CSRF/session
   lifecycle), and the AX-tree pipeline. See [Testing](#testing).
 
@@ -466,7 +466,7 @@ Save the current page to disk.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `format` | `"pdf"` \| `"mhtml"` \| `"html"` | yes | — | Output format |
-| `path` | string | yes | — | Absolute or relative; parent dirs created |
+| `path` | string | yes | — | Where to write. Default: under the profile's download sandbox (relative resolves there; absolute paths outside it are rejected unless `BROWSER_MCP_ALLOW_ANY_WRITE_PATH=1`). Parent dirs created. See [Security](#security-model) |
 | `full_page` | boolean | no | `false` | PDF only: full scrollable page |
 | `landscape` | boolean | no | `false` | PDF only |
 | `tab_id` | string | no | active tab | Tab to save |
@@ -478,13 +478,14 @@ Save the current page to disk.
 ### `browser_upload`
 
 Upload files to an `<input type="file">`. Paths validated to exist before
-the call. For `<input multiple>` pass several files; otherwise one.
+the call. For `<input multiple>` pass several files; otherwise one. By default
+files must live under the profile's upload sandbox (see [Security](#security-model)).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `target` | string | yes | — | File input |
 | `target_type` | `selector`\|`label`\|`testid` | no | `selector` | Locator strategy |
-| `files` | array of paths (1–32) | yes | — | Absolute or relative; each validated to be a regular file |
+| `files` | array of paths (1–32) | yes | — | Under the profile's upload sandbox by default (paths outside it rejected unless `BROWSER_MCP_ALLOW_ANY_UPLOAD_PATH=1`); each validated to be a regular file |
 | `tab_id` | string | no | active tab | Tab to act on |
 
 ### `browser_download_wait`
@@ -498,7 +499,7 @@ Trigger a download (via click or navigation) and capture the resulting file.
 | `target_type` | same as click | no | `text` | Locator strategy |
 | `role` | ARIA role | no | — | For role locator |
 | `url` | URL | iff navigate | — | Direct download URL |
-| `save_to` | string | yes | — | Path; ends with `/` or existing dir → server-suggested filename |
+| `save_to` | string | yes | — | Where to save. Default: under the profile's download sandbox (absolute paths outside it rejected unless `BROWSER_MCP_ALLOW_ANY_WRITE_PATH=1`). Ends with `/` or existing dir → server-suggested filename |
 | `timeout_ms` | integer (1–600000) | no | `60000` | Total wait for start + complete |
 | `tab_id` | string | no | active tab | Tab to act on |
 
@@ -715,10 +716,10 @@ Request pipeline for `/mcp`:
 → MCP SDK transport.handleRequest
 ```
 
-`src/app.ts` exports `createApp()` which returns the `http.Server` — no
-side effects at import time, which makes integration testing trivial.
-`src/index.ts` is a thin bootstrap that calls `createApp().httpServer.listen()`
-and wires SIGINT/SIGTERM.
+`apps/browser-mcp/src/app.ts` exports `createApp()` which returns the
+`http.Server` — no side effects at import time, which makes integration
+testing trivial. `apps/browser-mcp/src/index.ts` is a thin bootstrap that
+calls `createApp().httpServer.listen()` and wires SIGINT/SIGTERM.
 
 ### BrowserManager
 
@@ -891,7 +892,7 @@ write primitive. Default-deny, opt-in where you need it:
 ### Not-attack-surface by construction
 
 - **No remote code execution on the supervisor.** There is no `eval` /
-  `child_process` / `vm` / `Function()` anywhere in `src/`. `browser_evaluate`
+  `child_process` / `vm` / `Function()` anywhere in `apps/browser-mcp/src/`. `browser_evaluate`
   runs JS in Chromium's renderer sandbox, not on the supervisor.
 - **Env isolation.** `BROWSER_MCP_*` env vars (API key, host, caps) are
   filtered out before Chromium is launched, so page scripts can't
@@ -921,7 +922,7 @@ URLs visited, cookies, or any page content.
 ## Testing
 
 ```bash
-npm test                  # run 364 tests once (vitest)
+npm test                  # run 365 tests once (vitest)
 npm run test:watch        # watch mode
 npm run test:coverage     # run + coverage report under coverage/
 npm run test:integration  # Playwright-backed tests only
@@ -1029,7 +1030,7 @@ cd browser-mcp
 npm install         # installs all workspaces, hoists node_modules to root
 npm run dev         # run with tsx (no build step)
 npm run build       # compile TypeScript to apps/browser-mcp/dist/
-npm test            # full test suite (364 tests)
+npm test            # full test suite (365 tests)
 npm run test:coverage
 ```
 

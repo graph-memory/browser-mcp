@@ -5,7 +5,7 @@
 **25 tools total (18 → 25).** Accessibility-tree snapshots via CDP, role-
 and label-based locators, assertions with retry, file IO, network inspection,
 cookies, permissions. Security defaults tightened across the board. Full
-vitest harness with 364 tests.
+vitest harness with 361 tests.
 
 ### New tools (7)
 
@@ -131,14 +131,13 @@ dashboards / SPAs where Readability bails out.
 
 - vitest harness with `npm test` / `npm run test:watch` /
   `npm run test:coverage`.
-- **364 tests across 32 files.** 15 unit files (pure helpers, AX-tree
+- **361 tests across 31 files.** 17 unit files (pure helpers, AX-tree
   conversion, config, log, auth, netlog, locator routing, URL safety, path
-  sandbox, log redaction, profile-name validation, mock-driven tool edge
-  cases, insecure-startup gate) + 17 integration files driving real
-  headless Chromium against local HTML fixtures and an in-process HTTP
-  test server.
+  sandbox, log redaction, mock-driven tool edge cases, insecure-startup
+  gate) + 14 integration files driving real headless Chromium against
+  local HTML fixtures and an in-process HTTP test server.
 - Coverage targets: 90% lines / 85% functions / 80% branches / 90%
-  statements. Current: 93.9% / 85.8% / 86.9% / 92.6%. Ceiling is bounded by
+  statements. Current: 93.6% / 85.6% / 85.4% / 91.9%. Ceiling is bounded by
   Playwright — code inside `page.evaluate(() => …)` runs in Chromium's V8
   and can't be instrumented by node-v8 coverage even when exercised
   end-to-end.
@@ -164,18 +163,6 @@ dashboards / SPAs where Readability bails out.
   Docker / Platform / Development / FAQ.
 - Architecture section documents the HTTP layer, BrowserManager lifecycle,
   AX snapshot pipeline, diff algorithm, netlog ring, and shutdown sequence.
-
-### Repository structure
-
-- **Converted to an npm workspace.** All code moved to `apps/browser-mcp/`
-  (`apps/` for runnable apps, `packages/` reserved for future shared libs).
-  The published package name is unchanged (`@graphmemory/browser-mcp`), so
-  `npx`, the `browser-mcp` bin, and installs are unaffected. Root scripts
-  (`build` / `test` / `test:coverage` / …) delegate into the workspace via
-  `-w`; a single hoisted `node_modules` + `package-lock.json` live at the root.
-- Dockerfile and docker-compose moved into `apps/browser-mcp/`; the build
-  context stays the repo root (the lockfile lives there). Build with
-  `docker build -f apps/browser-mcp/Dockerfile .`.
 
 ### Breaking changes
 
