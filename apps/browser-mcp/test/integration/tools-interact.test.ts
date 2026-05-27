@@ -113,6 +113,15 @@ describe.skipIf(SKIP)("tools/interact — click, type, scroll, find, wait, evalu
     expect(textOf(r)).toContain("Scrolled up");
   }, 60_000);
 
+  it("scroll on a page that fits the viewport reports 'fits', not 100% (N6)", async () => {
+    await open({ url: "about:blank" });
+    const r = await scroll({ direction: "down", amount: 800 });
+    const t = textOf(r);
+    expect(t).toContain("page fits viewport");
+    expect(t).toContain("(0%)");
+    expect(t).not.toContain("(100%)");
+  }, 60_000);
+
   it("scroll 'top' jumps to page start", async () => {
     await open({ url: fixtureUrl("article.html") });
     const r = await scroll({ direction: "top", amount: 0 });

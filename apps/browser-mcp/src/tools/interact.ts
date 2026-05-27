@@ -143,14 +143,16 @@ export function makeScrollHandler(browser: BrowserManager) {
     tab_id?: string;
   }) => {
     const pos = await browser.scroll(direction, amount, tab_id);
-    const pct = pos.scrollHeight > pos.viewportHeight
-      ? Math.round((pos.scrollY / (pos.scrollHeight - pos.viewportHeight)) * 100)
-      : 100;
+    const fits = pos.scrollHeight <= pos.viewportHeight;
+    const pct = fits
+      ? 0
+      : Math.round((pos.scrollY / (pos.scrollHeight - pos.viewportHeight)) * 100);
+    const note = fits ? " (page fits viewport — nothing to scroll)" : "";
     return {
       content: [
         {
           type: "text" as const,
-          text: `Scrolled ${direction} — position: ${pos.scrollY}/${pos.scrollHeight}px (${pct}%)`,
+          text: `Scrolled ${direction} — position: ${pos.scrollY}/${pos.scrollHeight}px (${pct}%)${note}`,
         },
       ],
     };
