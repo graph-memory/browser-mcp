@@ -43,6 +43,7 @@ import {
   checkSchema, makeCheckHandler,
   dragSchema, makeDragHandler,
 } from "./tools/actions.js";
+import { fillFormSchema, makeFillFormHandler } from "./tools/fill-form.js";
 import { logInfo, logError } from "./log.js";
 
 type ToolResult = {
@@ -193,6 +194,15 @@ export function buildServer(browser: BrowserManager): McpServer {
       "with their own locator strategies.",
     inputSchema: dragSchema,
   }, withLog("browser_drag", makeDragHandler(browser)));
+
+  server.registerTool("browser_fill_form", {
+    description:
+      "Fill a whole form in one call. `fields` is applied in order; each field sets exactly one of " +
+      "`value` (text), `checked` (checkbox/radio), or `options` (native <select> by value). " +
+      "Aborts on the first failing field (reports which). `submit: true` presses Enter on the last " +
+      "field; `submit: { target }` clicks a submit button afterwards.",
+    inputSchema: fillFormSchema,
+  }, withLog("browser_fill_form", makeFillFormHandler(browser)));
 
   server.registerTool("browser_scroll", {
     description:
