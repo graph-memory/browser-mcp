@@ -217,7 +217,7 @@ browser_cookies       { action: "get", urls: ["https://example.com/"] }
   Hard cap on concurrent sessions (`max_sessions`, default 50).
 - **Multi-arch Docker image.** linux/amd64 + linux/arm64, non-root `browser`
   user, `tini` as PID 1 for zombie reaping, healthcheck wired to `/health`.
-- **Full test suite.** 417 tests (unit + integration against a real headless
+- **Full test suite.** 423 tests (unit + integration against a real headless
   Chromium) covering every tool handler, the HTTP server (auth/CSRF/session
   lifecycle), and the AX-tree pipeline. See [Testing](#testing).
 
@@ -815,22 +815,39 @@ calls `createApp().httpServer.listen()` and wires SIGINT/SIGTERM.
 
 ### BrowserManager
 
-One instance per profile. Holds:
+One instance per profile, shared by every session on that profile. Holds:
 
 - The `BrowserContext` (Playwright's persistent context).
 - `tabs: Map<tab_id, Page>` — 8-char nanoid per tab.
 - `lastUsed: Map<tab_id, timestamp>` — drives the TTL sweeper.
-- `netLog: NetLogEntry[]` — fixed-capacity ring (500 entries) fed by page
+- `netLog` — fixed-capacity ring (500 entries) fed by page
   `request`/`requestfinished`/`requestfailed` listeners.
-- `snapshotStore: Map<name, AxNode>` — user-named AX snapshots for
-  `browser_snapshot` diffing.
+- `consoleLog` — ring (500) of `console.*` messages plus uncaught `pageerror`s,
+  fed by `page.on("console")` / `page.on("pageerror")` (`browser_console_log`).
+- `bodyLog` — ring (50) of small texty/JSON response bodies (≤256 KB each),
+  captured passively in `requestfinished` (`browser_network_body`).
 - `_overrides` — context-level settings from `browser_configure` (applied on
   next context creation).
 
 Every 60 s the sweeper closes inactive tabs older than `tab_ttl` (the
 currently-active tab is always spared).
 
-On `shutdown()` the context is closed and all Chromium subprocesses exit.
+On `shutdown()` the context is closed — bounded by an 8 s race so a wedged
+Chromium can't hang the supervisor's SIGTERM path or test teardown — and all
+Chromium subprocesses exit.
+
+### BrowserSession
+
+Tool handlers don't talk to `BrowserManager` directly: each MCP session gets a
+thin `BrowserSession` facade over the shared manager. It owns the per-session
+**active tab** (`currentTabId`) and **snapshot store** (the `store_as` /
+`diff_against` named snapshots), resolving `tab_id ?? currentTabId` to a
+concrete id before delegating. Everything else — context, tabs, cookies, and
+the network / console / body rings — stays shared on the manager, so a login or
+a captured request in one session is visible to the others. Two concurrent
+clients on the same profile therefore don't clobber each other's "current tab"
+or collide on snapshot names; for fully independent state, give each its own
+named profile.
 
 ### Accessibility snapshot pipeline
 
@@ -1024,7 +1041,7 @@ URLs visited, cookies, or any page content.
 ## Testing
 
 ```bash
-npm test                  # run 417 tests once (vitest)
+npm test                  # run 423 tests once (vitest)
 npm run test:watch        # watch mode
 npm run test:coverage     # run + coverage report under coverage/
 npm run test:integration  # Playwright-backed tests only
@@ -1132,7 +1149,7 @@ cd browser-mcp
 npm install         # installs all workspaces, hoists node_modules to root
 npm run dev         # run with tsx (no build step)
 npm run build       # compile TypeScript to apps/browser-mcp/dist/
-npm test            # full test suite (417 tests)
+npm test            # full test suite (423 tests)
 npm run test:coverage
 ```
 
