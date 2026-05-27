@@ -139,4 +139,8 @@ export const config = {
   consoleRingCap: num(undefined, process.env.BROWSER_MCP_CONSOLE_RING, 500),
   bodyRingCap: num(undefined, process.env.BROWSER_MCP_BODY_RING, 50),
   bodyMaxBytes: num(undefined, process.env.BROWSER_MCP_BODY_MAX_BYTES, 256 * 1024),
+
+  // Max accepted HTTP request body (DoS guard). Env-only — raising it WEAKENS
+  // the guard, so it stays off the CLI surface. Pairs with READ_BODY_TIMEOUT_MS.
+  maxRequestBytes: num(undefined, process.env.BROWSER_MCP_MAX_REQUEST_BYTES, 1_048_576),
 } as const;

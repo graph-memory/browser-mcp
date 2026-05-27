@@ -418,7 +418,7 @@ type Session = {
   lastUsed: number;
 };
 
-const MAX_BODY_BYTES = 1_048_576;
+const MAX_BODY_BYTES = config.maxRequestBytes;
 /**
  * Wall-clock cap on how long `readJsonBody` waits for the full request body.
  * Overridable via env for testing the slow-loris branch.

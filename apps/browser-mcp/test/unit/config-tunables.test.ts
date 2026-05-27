@@ -72,3 +72,15 @@ describe("tunable config — ring capacities (Tier 2)", () => {
     expect(r.entries.map((e) => e.text)).toEqual(["m2", "m3", "m4"]);
   });
 });
+
+describe("tunable config — max HTTP request body (Tier 3)", () => {
+  it("defaults to 1 MiB", async () => {
+    const config = await freshConfig({});
+    expect(config.maxRequestBytes).toBe(1_048_576);
+  });
+
+  it("env override is picked up", async () => {
+    const config = await freshConfig({ BROWSER_MCP_MAX_REQUEST_BYTES: "5242880" });
+    expect(config.maxRequestBytes).toBe(5_242_880);
+  });
+});

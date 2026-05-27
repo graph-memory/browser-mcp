@@ -772,6 +772,7 @@ All flags are optional — loopback-only defaults work out of the box. Priority:
 | `BROWSER_MCP_SANDBOX_DIR` | `~/.browser-mcp` | Base dir for download / upload sandboxes |
 | `BROWSER_MCP_READ_BODY_TIMEOUT_MS` | `10000` | Wall-clock cap on HTTP body read (slow-loris) |
 | `BROWSER_MCP_NO_NETWORK_BODY` | `0` | `1` disables passive response-body capture for `browser_network_body` |
+| `BROWSER_MCP_MAX_REQUEST_BYTES` | `1048576` | Max accepted HTTP request body (1 MiB). **Raising it weakens a DoS guard** — only bump if a legitimate tool call needs a larger payload |
 
 ### Resource tuning (env only)
 
