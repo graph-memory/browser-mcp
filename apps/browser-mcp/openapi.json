@@ -1,0 +1,4962 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "browser-mcp REST API",
+    "version": "0.2.0",
+    "description": "Stateless REST/JSON surface over the same live browser as the MCP server. Each call is an independent POST; `?profile=` selects the shared browser to drive (the same profile an MCP agent uses). Pass an explicit `tab_id` to target a specific tab."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/v1/tools/browser_open": {
+      "post": {
+        "operationId": "browser_open",
+        "summary": "Open a URL in a new tab, or navigate an existing tab if tab_id is given",
+        "description": "Open a URL in a new tab, or navigate an existing tab if tab_id is given. Waits for DOMContentLoaded plus a short request-idle settle. Does NOT return page content — call browser_read afterwards. Returns HTTP status, final URL, title, and tab_id.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Absolute URL to navigate to. http(s) only by default — file://, data:, javascript:, and private/loopback IPs are blocked; set BROWSER_MCP_ALLOW_FILE_URLS=1 or BROWSER_MCP_ALLOW_PRIVATE_NETWORKS=1 to opt in."
+                  },
+                  "tab_id": {
+                    "description": "If set, navigate this existing tab instead of opening a new one",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_read": {
+      "post": {
+        "operationId": "browser_read",
+        "summary": "Read the current (or specified) tab",
+        "description": "Read the current (or specified) tab. mode=markdown (default) extracts the main article via Readability and returns Markdown; mode=text returns body innerText; mode=html returns raw HTML. Use selector to narrow to an element. Output is capped at max_chars (default 50000, overridable globally via BROWSER_MCP_MAX_CHARS).",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "default": "markdown",
+                    "description": "markdown: main article via Readability, converted to Markdown (best default). text: body innerText. html: raw HTML of the page or selected element.",
+                    "type": "string",
+                    "enum": [
+                      "markdown",
+                      "text",
+                      "html"
+                    ]
+                  },
+                  "selector": {
+                    "description": "CSS selector to narrow extraction to a specific element (outerHTML/innerText of that node)",
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "max_chars": {
+                    "description": "Cap output length in characters (default: 50000)",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "compact": {
+                    "description": "Strip nav / header / footer / aside / script / style / svg / iframe and aria landmark chrome (banner, navigation, complementary, contentinfo, search) before rendering. Also drops [aria-hidden=true] and [hidden]. Works for all modes — useful for dashboards / SPAs where Readability bails out and the raw body is drowned in nav boilerplate. Defaults to false for markdown (Readability already handles chrome) and true for text/html.",
+                    "type": "boolean"
+                  },
+                  "tab_id": {
+                    "description": "Tab to read from; defaults to the active tab",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_tabs_list": {
+      "post": {
+        "operationId": "browser_tabs_list",
+        "summary": "List all open tabs with their tab_id, title, and URL",
+        "description": "List all open tabs with their tab_id, title, and URL. The active tab is marked with →.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_tab_switch": {
+      "post": {
+        "operationId": "browser_tab_switch",
+        "summary": "Make the given tab the active one for subsequent tool calls.",
+        "description": "Make the given tab the active one for subsequent tool calls.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tab_id": {
+                    "type": "string",
+                    "description": "Tab to make active (from browser_tabs_list)"
+                  }
+                },
+                "required": [
+                  "tab_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_tab_close": {
+      "post": {
+        "operationId": "browser_tab_close",
+        "summary": "Close a tab by tab_id.",
+        "description": "Close a tab by tab_id.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tab_id": {
+                    "type": "string",
+                    "description": "Tab to close"
+                  }
+                },
+                "required": [
+                  "tab_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_click": {
+      "post": {
+        "operationId": "browser_click",
+        "summary": "Click an element",
+        "description": "Click an element. target_type picks the locator strategy (most reliable first): `role` (e.g. target=\"Sign in\" + role=\"button\"), `label` (form fields by <label>), `text` (visible text, default), `placeholder`, `testid`, `selector` (CSS escape hatch). Playwright auto-waits for the element to be visible/enabled/stable; we also wait for network idle after the click.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "description": "What to click. Meaning depends on target_type:\n- text: visible text, e.g. \"Sign in\"\n- role: accessible name when combined with `role` param, e.g. \"Sign in\" + role=\"button\"\n- label: <label> text, e.g. \"Email\" (for inputs)\n- placeholder: input placeholder text\n- testid: data-testid value\n- selector: CSS selector"
+                  },
+                  "target_type": {
+                    "default": "text",
+                    "description": "How to interpret target. Prefer `role` for buttons/links (most reliable), `label` for form fields, `text` for generic visible text. `selector` is the escape hatch.",
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "role",
+                      "label",
+                      "placeholder",
+                      "testid",
+                      "selector"
+                    ]
+                  },
+                  "role": {
+                    "description": "ARIA role when target_type='role'. Common: button, link, textbox, checkbox.",
+                    "type": "string",
+                    "enum": [
+                      "alert",
+                      "alertdialog",
+                      "application",
+                      "article",
+                      "banner",
+                      "blockquote",
+                      "button",
+                      "caption",
+                      "cell",
+                      "checkbox",
+                      "code",
+                      "columnheader",
+                      "combobox",
+                      "complementary",
+                      "contentinfo",
+                      "definition",
+                      "deletion",
+                      "dialog",
+                      "directory",
+                      "document",
+                      "emphasis",
+                      "feed",
+                      "figure",
+                      "form",
+                      "generic",
+                      "grid",
+                      "gridcell",
+                      "group",
+                      "heading",
+                      "img",
+                      "insertion",
+                      "link",
+                      "list",
+                      "listbox",
+                      "listitem",
+                      "log",
+                      "main",
+                      "marquee",
+                      "math",
+                      "meter",
+                      "menu",
+                      "menubar",
+                      "menuitem",
+                      "menuitemcheckbox",
+                      "menuitemradio",
+                      "navigation",
+                      "none",
+                      "note",
+                      "option",
+                      "paragraph",
+                      "presentation",
+                      "progressbar",
+                      "radio",
+                      "radiogroup",
+                      "region",
+                      "row",
+                      "rowgroup",
+                      "rowheader",
+                      "scrollbar",
+                      "search",
+                      "searchbox",
+                      "separator",
+                      "slider",
+                      "spinbutton",
+                      "status",
+                      "strong",
+                      "subscript",
+                      "superscript",
+                      "switch",
+                      "tab",
+                      "table",
+                      "tablist",
+                      "tabpanel",
+                      "term",
+                      "textbox",
+                      "time",
+                      "timer",
+                      "toolbar",
+                      "tooltip",
+                      "tree",
+                      "treegrid",
+                      "treeitem"
+                    ]
+                  },
+                  "exact": {
+                    "default": false,
+                    "description": "Exact match vs substring (for text/role/label/placeholder).",
+                    "type": "boolean"
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "target"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_type": {
+      "post": {
+        "operationId": "browser_type",
+        "summary": "Fill an input/textarea/contenteditable with text",
+        "description": "Fill an input/textarea/contenteditable with text. target_type picks the locator strategy (default `text`); `label` is usually most robust for forms (e.g. target=\"Email\"), `selector` is the CSS escape hatch. If submit=true, presses Enter after typing. Auto-waits for the field to be actionable before filling.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "description": "Target to fill. See target_type for semantics."
+                  },
+                  "target_type": {
+                    "default": "text",
+                    "description": "Locator strategy (default 'text'). Prefer 'label' for form fields (e.g. target=\"Email\") — most robust against markup changes; 'selector' is the CSS escape hatch.",
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "role",
+                      "label",
+                      "placeholder",
+                      "testid",
+                      "selector"
+                    ]
+                  },
+                  "role": {
+                    "description": "ARIA role when target_type='role'.",
+                    "type": "string",
+                    "enum": [
+                      "alert",
+                      "alertdialog",
+                      "application",
+                      "article",
+                      "banner",
+                      "blockquote",
+                      "button",
+                      "caption",
+                      "cell",
+                      "checkbox",
+                      "code",
+                      "columnheader",
+                      "combobox",
+                      "complementary",
+                      "contentinfo",
+                      "definition",
+                      "deletion",
+                      "dialog",
+                      "directory",
+                      "document",
+                      "emphasis",
+                      "feed",
+                      "figure",
+                      "form",
+                      "generic",
+                      "grid",
+                      "gridcell",
+                      "group",
+                      "heading",
+                      "img",
+                      "insertion",
+                      "link",
+                      "list",
+                      "listbox",
+                      "listitem",
+                      "log",
+                      "main",
+                      "marquee",
+                      "math",
+                      "meter",
+                      "menu",
+                      "menubar",
+                      "menuitem",
+                      "menuitemcheckbox",
+                      "menuitemradio",
+                      "navigation",
+                      "none",
+                      "note",
+                      "option",
+                      "paragraph",
+                      "presentation",
+                      "progressbar",
+                      "radio",
+                      "radiogroup",
+                      "region",
+                      "row",
+                      "rowgroup",
+                      "rowheader",
+                      "scrollbar",
+                      "search",
+                      "searchbox",
+                      "separator",
+                      "slider",
+                      "spinbutton",
+                      "status",
+                      "strong",
+                      "subscript",
+                      "superscript",
+                      "switch",
+                      "tab",
+                      "table",
+                      "tablist",
+                      "tabpanel",
+                      "term",
+                      "textbox",
+                      "time",
+                      "timer",
+                      "toolbar",
+                      "tooltip",
+                      "tree",
+                      "treegrid",
+                      "treeitem"
+                    ]
+                  },
+                  "exact": {
+                    "default": false,
+                    "description": "Exact match for text/label/placeholder/role.",
+                    "type": "boolean"
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 100000,
+                    "description": "Text to type. Existing value is replaced (fill semantics)."
+                  },
+                  "submit": {
+                    "default": false,
+                    "description": "Press Enter after typing (e.g. to submit a search or login form)",
+                    "type": "boolean"
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "target",
+                  "text"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_press": {
+      "post": {
+        "operationId": "browser_press",
+        "summary": "Press a key or chord (Playwright syntax: \"Enter\", \"Tab\", \"Escape\", \"ArrowDown\", \"Control+A\", \"Meta+C\")",
+        "description": "Press a key or chord (Playwright syntax: \"Enter\", \"Tab\", \"Escape\", \"ArrowDown\", \"Control+A\", \"Meta+C\"). With `target`, focuses that element first; otherwise sends to the page.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "Key or chord to press, Playwright syntax. Examples: \"Enter\", \"Tab\", \"Escape\", \"ArrowDown\", \"Control+A\", \"Meta+C\". Combine modifiers with '+'."
+                  },
+                  "target": {
+                    "description": "Optional element to focus first. If omitted, the key is sent to the page (active element).",
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "target_type": {
+                    "default": "text",
+                    "description": "Locator strategy for `target`.",
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "role",
+                      "label",
+                      "placeholder",
+                      "testid",
+                      "selector"
+                    ]
+                  },
+                  "role": {
+                    "description": "ARIA role when target_type='role'.",
+                    "type": "string",
+                    "enum": [
+                      "alert",
+                      "alertdialog",
+                      "application",
+                      "article",
+                      "banner",
+                      "blockquote",
+                      "button",
+                      "caption",
+                      "cell",
+                      "checkbox",
+                      "code",
+                      "columnheader",
+                      "combobox",
+                      "complementary",
+                      "contentinfo",
+                      "definition",
+                      "deletion",
+                      "dialog",
+                      "directory",
+                      "document",
+                      "emphasis",
+                      "feed",
+                      "figure",
+                      "form",
+                      "generic",
+                      "grid",
+                      "gridcell",
+                      "group",
+                      "heading",
+                      "img",
+                      "insertion",
+                      "link",
+                      "list",
+                      "listbox",
+                      "listitem",
+                      "log",
+                      "main",
+                      "marquee",
+                      "math",
+                      "meter",
+                      "menu",
+                      "menubar",
+                      "menuitem",
+                      "menuitemcheckbox",
+                      "menuitemradio",
+                      "navigation",
+                      "none",
+                      "note",
+                      "option",
+                      "paragraph",
+                      "presentation",
+                      "progressbar",
+                      "radio",
+                      "radiogroup",
+                      "region",
+                      "row",
+                      "rowgroup",
+                      "rowheader",
+                      "scrollbar",
+                      "search",
+                      "searchbox",
+                      "separator",
+                      "slider",
+                      "spinbutton",
+                      "status",
+                      "strong",
+                      "subscript",
+                      "superscript",
+                      "switch",
+                      "tab",
+                      "table",
+                      "tablist",
+                      "tabpanel",
+                      "term",
+                      "textbox",
+                      "time",
+                      "timer",
+                      "toolbar",
+                      "tooltip",
+                      "tree",
+                      "treegrid",
+                      "treeitem"
+                    ]
+                  },
+                  "exact": {
+                    "default": false,
+                    "description": "Exact match for text/role/label/placeholder.",
+                    "type": "boolean"
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_hover": {
+      "post": {
+        "operationId": "browser_hover",
+        "summary": "Hover the mouse over an element (to reveal menus, tooltips, or hover-only controls)",
+        "description": "Hover the mouse over an element (to reveal menus, tooltips, or hover-only controls). Same locator strategies as browser_click.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "description": "Element to hover. See target_type."
+                  },
+                  "target_type": {
+                    "default": "text",
+                    "description": "Locator strategy for `target`.",
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "role",
+                      "label",
+                      "placeholder",
+                      "testid",
+                      "selector"
+                    ]
+                  },
+                  "role": {
+                    "description": "ARIA role when target_type='role'.",
+                    "type": "string",
+                    "enum": [
+                      "alert",
+                      "alertdialog",
+                      "application",
+                      "article",
+                      "banner",
+                      "blockquote",
+                      "button",
+                      "caption",
+                      "cell",
+                      "checkbox",
+                      "code",
+                      "columnheader",
+                      "combobox",
+                      "complementary",
+                      "contentinfo",
+                      "definition",
+                      "deletion",
+                      "dialog",
+                      "directory",
+                      "document",
+                      "emphasis",
+                      "feed",
+                      "figure",
+                      "form",
+                      "generic",
+                      "grid",
+                      "gridcell",
+                      "group",
+                      "heading",
+                      "img",
+                      "insertion",
+                      "link",
+                      "list",
+                      "listbox",
+                      "listitem",
+                      "log",
+                      "main",
+                      "marquee",
+                      "math",
+                      "meter",
+                      "menu",
+                      "menubar",
+                      "menuitem",
+                      "menuitemcheckbox",
+                      "menuitemradio",
+                      "navigation",
+                      "none",
+                      "note",
+                      "option",
+                      "paragraph",
+                      "presentation",
+                      "progressbar",
+                      "radio",
+                      "radiogroup",
+                      "region",
+                      "row",
+                      "rowgroup",
+                      "rowheader",
+                      "scrollbar",
+                      "search",
+                      "searchbox",
+                      "separator",
+                      "slider",
+                      "spinbutton",
+                      "status",
+                      "strong",
+                      "subscript",
+                      "superscript",
+                      "switch",
+                      "tab",
+                      "table",
+                      "tablist",
+                      "tabpanel",
+                      "term",
+                      "textbox",
+                      "time",
+                      "timer",
+                      "toolbar",
+                      "tooltip",
+                      "tree",
+                      "treegrid",
+                      "treeitem"
+                    ]
+                  },
+                  "exact": {
+                    "default": false,
+                    "description": "Exact match for text/role/label/placeholder.",
+                    "type": "boolean"
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "target"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_select_option": {
+      "post": {
+        "operationId": "browser_select_option",
+        "summary": "Select option(s) in a native <select> by value (default), visible label, or zero-based index",
+        "description": "Select option(s) in a native <select> by value (default), visible label, or zero-based index. More reliable than clicking options. For <select multiple> pass several values.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "description": "The <select> element. See target_type."
+                  },
+                  "target_type": {
+                    "default": "label",
+                    "description": "Locator strategy for the <select>. `label` is usually cleanest for forms.",
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "role",
+                      "label",
+                      "placeholder",
+                      "testid",
+                      "selector"
+                    ]
+                  },
+                  "role": {
+                    "description": "ARIA role when target_type='role'.",
+                    "type": "string",
+                    "enum": [
+                      "alert",
+                      "alertdialog",
+                      "application",
+                      "article",
+                      "banner",
+                      "blockquote",
+                      "button",
+                      "caption",
+                      "cell",
+                      "checkbox",
+                      "code",
+                      "columnheader",
+                      "combobox",
+                      "complementary",
+                      "contentinfo",
+                      "definition",
+                      "deletion",
+                      "dialog",
+                      "directory",
+                      "document",
+                      "emphasis",
+                      "feed",
+                      "figure",
+                      "form",
+                      "generic",
+                      "grid",
+                      "gridcell",
+                      "group",
+                      "heading",
+                      "img",
+                      "insertion",
+                      "link",
+                      "list",
+                      "listbox",
+                      "listitem",
+                      "log",
+                      "main",
+                      "marquee",
+                      "math",
+                      "meter",
+                      "menu",
+                      "menubar",
+                      "menuitem",
+                      "menuitemcheckbox",
+                      "menuitemradio",
+                      "navigation",
+                      "none",
+                      "note",
+                      "option",
+                      "paragraph",
+                      "presentation",
+                      "progressbar",
+                      "radio",
+                      "radiogroup",
+                      "region",
+                      "row",
+                      "rowgroup",
+                      "rowheader",
+                      "scrollbar",
+                      "search",
+                      "searchbox",
+                      "separator",
+                      "slider",
+                      "spinbutton",
+                      "status",
+                      "strong",
+                      "subscript",
+                      "superscript",
+                      "switch",
+                      "tab",
+                      "table",
+                      "tablist",
+                      "tabpanel",
+                      "term",
+                      "textbox",
+                      "time",
+                      "timer",
+                      "toolbar",
+                      "tooltip",
+                      "tree",
+                      "treegrid",
+                      "treeitem"
+                    ]
+                  },
+                  "exact": {
+                    "default": false,
+                    "description": "Exact match for text/role/label/placeholder.",
+                    "type": "boolean"
+                  },
+                  "by": {
+                    "default": "value",
+                    "description": "How to interpret `values`: option `value` attribute, visible `label`, or zero-based `index`.",
+                    "type": "string",
+                    "enum": [
+                      "value",
+                      "label",
+                      "index"
+                    ]
+                  },
+                  "values": {
+                    "minItems": 1,
+                    "maxItems": 64,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 1024
+                    },
+                    "description": "Option(s) to select. For a single-select pass one; for <select multiple> pass several."
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "target",
+                  "values"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_check": {
+      "post": {
+        "operationId": "browser_check",
+        "summary": "Set a checkbox or radio to checked/unchecked",
+        "description": "Set a checkbox or radio to checked/unchecked. Idempotent (unlike browser_click, which toggles): checked=true ensures checked, checked=false ensures unchecked, no-op if already in that state.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "description": "Checkbox or radio to set. See target_type."
+                  },
+                  "target_type": {
+                    "default": "label",
+                    "description": "Locator strategy. `label` is usually cleanest.",
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "role",
+                      "label",
+                      "placeholder",
+                      "testid",
+                      "selector"
+                    ]
+                  },
+                  "role": {
+                    "description": "ARIA role when target_type='role'.",
+                    "type": "string",
+                    "enum": [
+                      "alert",
+                      "alertdialog",
+                      "application",
+                      "article",
+                      "banner",
+                      "blockquote",
+                      "button",
+                      "caption",
+                      "cell",
+                      "checkbox",
+                      "code",
+                      "columnheader",
+                      "combobox",
+                      "complementary",
+                      "contentinfo",
+                      "definition",
+                      "deletion",
+                      "dialog",
+                      "directory",
+                      "document",
+                      "emphasis",
+                      "feed",
+                      "figure",
+                      "form",
+                      "generic",
+                      "grid",
+                      "gridcell",
+                      "group",
+                      "heading",
+                      "img",
+                      "insertion",
+                      "link",
+                      "list",
+                      "listbox",
+                      "listitem",
+                      "log",
+                      "main",
+                      "marquee",
+                      "math",
+                      "meter",
+                      "menu",
+                      "menubar",
+                      "menuitem",
+                      "menuitemcheckbox",
+                      "menuitemradio",
+                      "navigation",
+                      "none",
+                      "note",
+                      "option",
+                      "paragraph",
+                      "presentation",
+                      "progressbar",
+                      "radio",
+                      "radiogroup",
+                      "region",
+                      "row",
+                      "rowgroup",
+                      "rowheader",
+                      "scrollbar",
+                      "search",
+                      "searchbox",
+                      "separator",
+                      "slider",
+                      "spinbutton",
+                      "status",
+                      "strong",
+                      "subscript",
+                      "superscript",
+                      "switch",
+                      "tab",
+                      "table",
+                      "tablist",
+                      "tabpanel",
+                      "term",
+                      "textbox",
+                      "time",
+                      "timer",
+                      "toolbar",
+                      "tooltip",
+                      "tree",
+                      "treegrid",
+                      "treeitem"
+                    ]
+                  },
+                  "exact": {
+                    "default": false,
+                    "description": "Exact match for text/role/label/placeholder.",
+                    "type": "boolean"
+                  },
+                  "checked": {
+                    "default": true,
+                    "description": "true → check (default), false → uncheck. Idempotent (no-op if already in that state).",
+                    "type": "boolean"
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "target"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_drag": {
+      "post": {
+        "operationId": "browser_drag",
+        "summary": "Drag one element onto another (HTML5 drag-and-drop / sortable lists)",
+        "description": "Drag one element onto another (HTML5 drag-and-drop / sortable lists). Specify source and target with their own locator strategies.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "description": "Element to drag. See source_type."
+                  },
+                  "source_type": {
+                    "default": "text",
+                    "description": "Locator strategy for `source`.",
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "role",
+                      "label",
+                      "placeholder",
+                      "testid",
+                      "selector"
+                    ]
+                  },
+                  "source_role": {
+                    "description": "ARIA role when source_type='role'.",
+                    "type": "string",
+                    "enum": [
+                      "alert",
+                      "alertdialog",
+                      "application",
+                      "article",
+                      "banner",
+                      "blockquote",
+                      "button",
+                      "caption",
+                      "cell",
+                      "checkbox",
+                      "code",
+                      "columnheader",
+                      "combobox",
+                      "complementary",
+                      "contentinfo",
+                      "definition",
+                      "deletion",
+                      "dialog",
+                      "directory",
+                      "document",
+                      "emphasis",
+                      "feed",
+                      "figure",
+                      "form",
+                      "generic",
+                      "grid",
+                      "gridcell",
+                      "group",
+                      "heading",
+                      "img",
+                      "insertion",
+                      "link",
+                      "list",
+                      "listbox",
+                      "listitem",
+                      "log",
+                      "main",
+                      "marquee",
+                      "math",
+                      "meter",
+                      "menu",
+                      "menubar",
+                      "menuitem",
+                      "menuitemcheckbox",
+                      "menuitemradio",
+                      "navigation",
+                      "none",
+                      "note",
+                      "option",
+                      "paragraph",
+                      "presentation",
+                      "progressbar",
+                      "radio",
+                      "radiogroup",
+                      "region",
+                      "row",
+                      "rowgroup",
+                      "rowheader",
+                      "scrollbar",
+                      "search",
+                      "searchbox",
+                      "separator",
+                      "slider",
+                      "spinbutton",
+                      "status",
+                      "strong",
+                      "subscript",
+                      "superscript",
+                      "switch",
+                      "tab",
+                      "table",
+                      "tablist",
+                      "tabpanel",
+                      "term",
+                      "textbox",
+                      "time",
+                      "timer",
+                      "toolbar",
+                      "tooltip",
+                      "tree",
+                      "treegrid",
+                      "treeitem"
+                    ]
+                  },
+                  "target": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "description": "Drop target. See target_type."
+                  },
+                  "target_type": {
+                    "default": "text",
+                    "description": "Locator strategy for `target`.",
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "role",
+                      "label",
+                      "placeholder",
+                      "testid",
+                      "selector"
+                    ]
+                  },
+                  "target_role": {
+                    "description": "ARIA role when target_type='role'.",
+                    "type": "string",
+                    "enum": [
+                      "alert",
+                      "alertdialog",
+                      "application",
+                      "article",
+                      "banner",
+                      "blockquote",
+                      "button",
+                      "caption",
+                      "cell",
+                      "checkbox",
+                      "code",
+                      "columnheader",
+                      "combobox",
+                      "complementary",
+                      "contentinfo",
+                      "definition",
+                      "deletion",
+                      "dialog",
+                      "directory",
+                      "document",
+                      "emphasis",
+                      "feed",
+                      "figure",
+                      "form",
+                      "generic",
+                      "grid",
+                      "gridcell",
+                      "group",
+                      "heading",
+                      "img",
+                      "insertion",
+                      "link",
+                      "list",
+                      "listbox",
+                      "listitem",
+                      "log",
+                      "main",
+                      "marquee",
+                      "math",
+                      "meter",
+                      "menu",
+                      "menubar",
+                      "menuitem",
+                      "menuitemcheckbox",
+                      "menuitemradio",
+                      "navigation",
+                      "none",
+                      "note",
+                      "option",
+                      "paragraph",
+                      "presentation",
+                      "progressbar",
+                      "radio",
+                      "radiogroup",
+                      "region",
+                      "row",
+                      "rowgroup",
+                      "rowheader",
+                      "scrollbar",
+                      "search",
+                      "searchbox",
+                      "separator",
+                      "slider",
+                      "spinbutton",
+                      "status",
+                      "strong",
+                      "subscript",
+                      "superscript",
+                      "switch",
+                      "tab",
+                      "table",
+                      "tablist",
+                      "tabpanel",
+                      "term",
+                      "textbox",
+                      "time",
+                      "timer",
+                      "toolbar",
+                      "tooltip",
+                      "tree",
+                      "treegrid",
+                      "treeitem"
+                    ]
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "source",
+                  "target"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_fill_form": {
+      "post": {
+        "operationId": "browser_fill_form",
+        "summary": "Fill a whole form in one call",
+        "description": "Fill a whole form in one call. `fields` is applied in order; each field sets exactly one of `value` (text), `checked` (checkbox/radio), or `options` (native <select> by value). Aborts on the first failing field (reports which). `submit: true` presses Enter on the last field; `submit: { target }` clicks a submit button afterwards.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "fields": {
+                    "minItems": 1,
+                    "maxItems": 64,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "target": {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "description": "Field locator. See target_type."
+                        },
+                        "target_type": {
+                          "default": "label",
+                          "description": "Locator strategy. `label` is usually cleanest for forms.",
+                          "type": "string",
+                          "enum": [
+                            "text",
+                            "role",
+                            "label",
+                            "placeholder",
+                            "testid",
+                            "selector"
+                          ]
+                        },
+                        "role": {
+                          "description": "ARIA role when target_type='role'.",
+                          "type": "string",
+                          "enum": [
+                            "alert",
+                            "alertdialog",
+                            "application",
+                            "article",
+                            "banner",
+                            "blockquote",
+                            "button",
+                            "caption",
+                            "cell",
+                            "checkbox",
+                            "code",
+                            "columnheader",
+                            "combobox",
+                            "complementary",
+                            "contentinfo",
+                            "definition",
+                            "deletion",
+                            "dialog",
+                            "directory",
+                            "document",
+                            "emphasis",
+                            "feed",
+                            "figure",
+                            "form",
+                            "generic",
+                            "grid",
+                            "gridcell",
+                            "group",
+                            "heading",
+                            "img",
+                            "insertion",
+                            "link",
+                            "list",
+                            "listbox",
+                            "listitem",
+                            "log",
+                            "main",
+                            "marquee",
+                            "math",
+                            "meter",
+                            "menu",
+                            "menubar",
+                            "menuitem",
+                            "menuitemcheckbox",
+                            "menuitemradio",
+                            "navigation",
+                            "none",
+                            "note",
+                            "option",
+                            "paragraph",
+                            "presentation",
+                            "progressbar",
+                            "radio",
+                            "radiogroup",
+                            "region",
+                            "row",
+                            "rowgroup",
+                            "rowheader",
+                            "scrollbar",
+                            "search",
+                            "searchbox",
+                            "separator",
+                            "slider",
+                            "spinbutton",
+                            "status",
+                            "strong",
+                            "subscript",
+                            "superscript",
+                            "switch",
+                            "tab",
+                            "table",
+                            "tablist",
+                            "tabpanel",
+                            "term",
+                            "textbox",
+                            "time",
+                            "timer",
+                            "toolbar",
+                            "tooltip",
+                            "tree",
+                            "treegrid",
+                            "treeitem"
+                          ]
+                        },
+                        "exact": {
+                          "default": false,
+                          "description": "Exact match for text/role/label/placeholder.",
+                          "type": "boolean"
+                        },
+                        "value": {
+                          "description": "Text to fill (input/textarea/contenteditable).",
+                          "type": "string",
+                          "maxLength": 10000
+                        },
+                        "checked": {
+                          "description": "Set a checkbox/radio (idempotent).",
+                          "type": "boolean"
+                        },
+                        "options": {
+                          "description": "Select option value(s) in a native <select>.",
+                          "minItems": 1,
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "maxLength": 1024
+                          }
+                        }
+                      },
+                      "required": [
+                        "target"
+                      ]
+                    },
+                    "description": "Fields to fill, applied in order. Each sets exactly one of value/checked/options."
+                  },
+                  "submit": {
+                    "description": "After filling: true presses Enter on the last field; an object clicks that submit element.",
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "target": {
+                            "type": "string",
+                            "maxLength": 2048
+                          },
+                          "target_type": {
+                            "default": "text",
+                            "type": "string",
+                            "enum": [
+                              "text",
+                              "role",
+                              "label",
+                              "placeholder",
+                              "testid",
+                              "selector"
+                            ]
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "alert",
+                              "alertdialog",
+                              "application",
+                              "article",
+                              "banner",
+                              "blockquote",
+                              "button",
+                              "caption",
+                              "cell",
+                              "checkbox",
+                              "code",
+                              "columnheader",
+                              "combobox",
+                              "complementary",
+                              "contentinfo",
+                              "definition",
+                              "deletion",
+                              "dialog",
+                              "directory",
+                              "document",
+                              "emphasis",
+                              "feed",
+                              "figure",
+                              "form",
+                              "generic",
+                              "grid",
+                              "gridcell",
+                              "group",
+                              "heading",
+                              "img",
+                              "insertion",
+                              "link",
+                              "list",
+                              "listbox",
+                              "listitem",
+                              "log",
+                              "main",
+                              "marquee",
+                              "math",
+                              "meter",
+                              "menu",
+                              "menubar",
+                              "menuitem",
+                              "menuitemcheckbox",
+                              "menuitemradio",
+                              "navigation",
+                              "none",
+                              "note",
+                              "option",
+                              "paragraph",
+                              "presentation",
+                              "progressbar",
+                              "radio",
+                              "radiogroup",
+                              "region",
+                              "row",
+                              "rowgroup",
+                              "rowheader",
+                              "scrollbar",
+                              "search",
+                              "searchbox",
+                              "separator",
+                              "slider",
+                              "spinbutton",
+                              "status",
+                              "strong",
+                              "subscript",
+                              "superscript",
+                              "switch",
+                              "tab",
+                              "table",
+                              "tablist",
+                              "tabpanel",
+                              "term",
+                              "textbox",
+                              "time",
+                              "timer",
+                              "toolbar",
+                              "tooltip",
+                              "tree",
+                              "treegrid",
+                              "treeitem"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "target"
+                        ]
+                      }
+                    ]
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fields"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_scroll": {
+      "post": {
+        "operationId": "browser_scroll",
+        "summary": "Scroll the current tab: direction=up|down scrolls by `amount` pixels (default 800); top/bottom jump to the page edges.",
+        "description": "Scroll the current tab: direction=up|down scrolls by `amount` pixels (default 800); top/bottom jump to the page edges.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "direction": {
+                    "default": "down",
+                    "description": "up/down scroll by `amount` px; top/bottom jump to the page edges",
+                    "type": "string",
+                    "enum": [
+                      "up",
+                      "down",
+                      "top",
+                      "bottom"
+                    ]
+                  },
+                  "amount": {
+                    "default": 800,
+                    "description": "Pixels to scroll when direction is up/down (ignored for top/bottom)",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_back": {
+      "post": {
+        "operationId": "browser_back",
+        "summary": "Navigate back in the tab's history.",
+        "description": "Navigate back in the tab's history.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_forward": {
+      "post": {
+        "operationId": "browser_forward",
+        "summary": "Navigate forward in the tab's history.",
+        "description": "Navigate forward in the tab's history.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_reload": {
+      "post": {
+        "operationId": "browser_reload",
+        "summary": "Reload the current page.",
+        "description": "Reload the current page.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_find": {
+      "post": {
+        "operationId": "browser_find",
+        "summary": "Find text occurrences on the current page",
+        "description": "Find text occurrences on the current page. Returns up to `limit` snippets (default 10), each with surrounding context and a best-effort CSS selector for browser_click/browser_type — the selector is depth-capped and may not be unique on complex DOM, so prefer role/label/text locators when possible.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "description": "Substring to search for in the page's visible text (case-insensitive)"
+                  },
+                  "limit": {
+                    "default": 10,
+                    "description": "Maximum number of matches to return",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 50
+                  },
+                  "tab_id": {
+                    "description": "Tab to search in; defaults to the active tab",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_wait": {
+      "post": {
+        "operationId": "browser_wait",
+        "summary": "Wait for an element to reach a given state",
+        "description": "Wait for an element to reach a given state. Useful for SPAs that load content asynchronously. Returns when the element matches the state or the timeout expires.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "selector": {
+                    "description": "CSS selector to wait for. Provide this OR `condition` (not both).",
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "condition": {
+                    "description": "JS expression polled until truthy (page.waitForFunction), e.g. \"window.__ready === true\". Provide this OR `selector`.",
+                    "type": "string",
+                    "maxLength": 10000
+                  },
+                  "state": {
+                    "default": "visible",
+                    "description": "Element state to wait for (only with `selector`)",
+                    "type": "string",
+                    "enum": [
+                      "visible",
+                      "hidden",
+                      "attached",
+                      "detached"
+                    ]
+                  },
+                  "timeout": {
+                    "default": 10000,
+                    "description": "Max wait time in milliseconds",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_evaluate": {
+      "post": {
+        "operationId": "browser_evaluate",
+        "summary": "Execute a JavaScript expression in the page context and return the JSON-serialized result",
+        "description": "Execute a JavaScript expression in the page context and return the JSON-serialized result. Useful for reading localStorage, cookies, window variables, or extracting data not visible in the DOM.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expression": {
+                    "type": "string",
+                    "maxLength": 10000,
+                    "description": "JavaScript expression to evaluate in the page context. Must return a JSON-serializable value."
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "expression"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_open_visible": {
+      "post": {
+        "operationId": "browser_open_visible",
+        "summary": "Open a URL in a VISIBLE (non-headless) Chrome window for manual interaction: signing in, solving a CAPTCHA, or inspecting a page yourself",
+        "description": "Open a URL in a VISIBLE (non-headless) Chrome window for manual interaction: signing in, solving a CAPTCHA, or inspecting a page yourself. Cookies/localStorage are saved to the persistent profile. Returns immediately — the user closes the window when done, and subsequent tools return to the default (headless) mode.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL to open in a visible (non-headless) Chrome window for manual interaction"
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_screenshot": {
+      "post": {
+        "operationId": "browser_screenshot",
+        "summary": "Take a PNG screenshot of the current tab",
+        "description": "Take a PNG screenshot of the current tab. Default: viewport. full_page=true captures the entire scrollable page.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "full_page": {
+                    "default": false,
+                    "description": "false: viewport only (1280x900). true: the entire scrollable page. Ignored if `selector` is set.",
+                    "type": "boolean"
+                  },
+                  "selector": {
+                    "description": "If set, capture only this element (CSS selector). Takes precedence over full_page. Element is scrolled into view automatically. Returns an error if not found.",
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "tab_id": {
+                    "description": "Tab to capture; defaults to the active tab",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_snapshot": {
+      "post": {
+        "operationId": "browser_snapshot",
+        "summary": "Return an accessibility snapshot of the page — a compact tree of semantic elements (role, name, value, state) based on the platform a11y API",
+        "description": "Return an accessibility snapshot of the page — a compact tree of semantic elements (role, name, value, state) based on the platform a11y API. More reliable than Markdown for interacting with SPAs, form-heavy pages, or custom components without stable selectors. Pair with browser_click using target_type=\"role\" or target_type=\"label\" for robust interaction. Supports `selector` to scope to a subtree, `max_depth` to cut tokens, and `format` ('yaml' compact by default, 'json' raw).",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tab_id": {
+                    "description": "Tab to snapshot; defaults to the active tab",
+                    "type": "string"
+                  },
+                  "selector": {
+                    "description": "If set, snapshot only the subtree rooted at this CSS selector. Useful for focusing on a form or panel without dragging in the whole page.",
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "max_depth": {
+                    "description": "Limit tree depth. Deeper children are replaced with a 'N hidden children' summary. Unset = no limit (default). Use to cut tokens on huge pages.",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 50
+                  },
+                  "interesting_only": {
+                    "default": true,
+                    "description": "Playwright filter: when true (default), prune decorative/hidden nodes. Set false to get the full raw a11y tree (much more verbose).",
+                    "type": "boolean"
+                  },
+                  "compact": {
+                    "description": "Strip to interactive elements only (buttons, links, textboxes, checkboxes, menu items) plus structural landmarks (headings, nav, main, dialogs, forms). Much more token-efficient when you just need 'what can I click/type'. Defaults to false — but when `diff_against` is set, defaults to true, because generic-container noise produces useless diffs otherwise.",
+                    "type": "boolean"
+                  },
+                  "store_as": {
+                    "description": "If set, save this snapshot under this name for later diffing. E.g. 'before-login'. Overwrites any previous snapshot with the same name.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "diff_against": {
+                    "description": "If set, compute a diff vs a previously-stored snapshot with this name. Returns lists of added / removed / changed elements instead of the full tree. Combine with `store_as` to roll forward (diff vs 'before-login' + store as 'after-login').",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "format": {
+                    "default": "yaml",
+                    "description": "Output format. 'yaml' (default) is a compact indented tree, human-readable and token-cheap. 'json' is the raw Playwright AXNode for programmatic use.",
+                    "type": "string",
+                    "enum": [
+                      "yaml",
+                      "json"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_expect": {
+      "post": {
+        "operationId": "browser_expect",
+        "summary": "Assert a condition on the current page",
+        "description": "Assert a condition on the current page. Retries up to `timeout_ms` before failing, so you don't need a separate browser_wait for flaky conditions. Supports element state (visible/hidden/enabled/disabled), text (text_equals / text_contains / text_matches), form input (value_equals), element count, page URL / title. Returns PASS or FAIL with both expected and actual values in the error body.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "assertion": {
+                    "type": "string",
+                    "enum": [
+                      "visible",
+                      "hidden",
+                      "enabled",
+                      "disabled",
+                      "text_equals",
+                      "text_contains",
+                      "text_matches",
+                      "value_equals",
+                      "count",
+                      "url_matches",
+                      "url_equals",
+                      "title_matches",
+                      "title_equals"
+                    ],
+                    "description": "What to assert. Element state: visible|hidden|enabled|disabled. Text: text_equals|text_contains|text_matches (regex). Form: value_equals. Count: number of matching elements. Page: url_*, title_*."
+                  },
+                  "target": {
+                    "description": "Element target. Required for all element/text/count assertions; ignored for url_* and title_*.",
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "target_type": {
+                    "default": "text",
+                    "description": "Locator strategy for `target` (default 'text'; 'selector' for CSS).",
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "role",
+                      "label",
+                      "placeholder",
+                      "testid",
+                      "selector"
+                    ]
+                  },
+                  "role": {
+                    "description": "ARIA role when target_type='role'.",
+                    "type": "string",
+                    "enum": [
+                      "alert",
+                      "alertdialog",
+                      "application",
+                      "article",
+                      "banner",
+                      "blockquote",
+                      "button",
+                      "caption",
+                      "cell",
+                      "checkbox",
+                      "code",
+                      "columnheader",
+                      "combobox",
+                      "complementary",
+                      "contentinfo",
+                      "definition",
+                      "deletion",
+                      "dialog",
+                      "directory",
+                      "document",
+                      "emphasis",
+                      "feed",
+                      "figure",
+                      "form",
+                      "generic",
+                      "grid",
+                      "gridcell",
+                      "group",
+                      "heading",
+                      "img",
+                      "insertion",
+                      "link",
+                      "list",
+                      "listbox",
+                      "listitem",
+                      "log",
+                      "main",
+                      "marquee",
+                      "math",
+                      "meter",
+                      "menu",
+                      "menubar",
+                      "menuitem",
+                      "menuitemcheckbox",
+                      "menuitemradio",
+                      "navigation",
+                      "none",
+                      "note",
+                      "option",
+                      "paragraph",
+                      "presentation",
+                      "progressbar",
+                      "radio",
+                      "radiogroup",
+                      "region",
+                      "row",
+                      "rowgroup",
+                      "rowheader",
+                      "scrollbar",
+                      "search",
+                      "searchbox",
+                      "separator",
+                      "slider",
+                      "spinbutton",
+                      "status",
+                      "strong",
+                      "subscript",
+                      "superscript",
+                      "switch",
+                      "tab",
+                      "table",
+                      "tablist",
+                      "tabpanel",
+                      "term",
+                      "textbox",
+                      "time",
+                      "timer",
+                      "toolbar",
+                      "tooltip",
+                      "tree",
+                      "treegrid",
+                      "treeitem"
+                    ]
+                  },
+                  "exact": {
+                    "default": false,
+                    "description": "Exact match for text/role/label/placeholder locators.",
+                    "type": "boolean"
+                  },
+                  "expected": {
+                    "description": "Expected value. Required for text_*/value_*/count/url_*/title_* assertions. For count it must be a number; for *_matches it's a regex string (compiled and run on the server — keep it simple, avoid catastrophic-backtracking patterns).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 4096
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  },
+                  "timeout_ms": {
+                    "default": 5000,
+                    "description": "How long to retry the assertion before failing.",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 60000
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "assertion"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_permissions": {
+      "post": {
+        "operationId": "browser_permissions",
+        "summary": "Grant (or clear) browser permissions like camera, microphone, geolocation, notifications, clipboard read/write",
+        "description": "Grant (or clear) browser permissions like camera, microphone, geolocation, notifications, clipboard read/write. Use before navigating to a site that will prompt the user. `grant: \"all\"` grants every supported permission; `\"none\"` clears all grants; an array picks specific ones. Applies to the current tab's origin by default.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "grant": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "all"
+                      },
+                      {
+                        "type": "string",
+                        "const": "none"
+                      },
+                      {
+                        "maxItems": 32,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "geolocation",
+                            "midi",
+                            "midi-sysex",
+                            "notifications",
+                            "camera",
+                            "microphone",
+                            "background-sync",
+                            "ambient-light-sensor",
+                            "accelerometer",
+                            "gyroscope",
+                            "magnetometer",
+                            "clipboard-read",
+                            "clipboard-write",
+                            "payment-handler",
+                            "storage-access"
+                          ]
+                        }
+                      }
+                    ],
+                    "description": "Which permissions to grant to the origin. 'all' grants every supported permission (camera, mic, geolocation, notifications, clipboard R/W, etc). 'none' clears all grants. An array lets you pick specific ones."
+                  },
+                  "origin": {
+                    "description": "Origin to grant the permissions for. Defaults to the current tab's origin. Use a specific origin like 'https://example.com' to pre-grant before navigation.",
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "tab_id": {
+                    "description": "Tab whose origin to use when `origin` is omitted. Defaults to active tab.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_save": {
+      "post": {
+        "operationId": "browser_save",
+        "summary": "Save the current page to disk",
+        "description": "Save the current page to disk. Formats: 'pdf' (Chromium's print-to-PDF, headless only), 'mhtml' (single-file archive with all resources inlined — excellent for offline analysis), or 'html' (raw page HTML). Parent directories are created automatically.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "pdf",
+                      "mhtml",
+                      "html"
+                    ],
+                    "description": "Output format. 'pdf' — Chromium's native print-to-PDF (headless-only). 'mhtml' — single-file archive with resources inlined, great for offline review. 'html' — raw page HTML as-is."
+                  },
+                  "path": {
+                    "type": "string",
+                    "maxLength": 4096,
+                    "description": "Where to write the file. By default it must stay inside this profile's download sandbox (~/.browser-mcp/downloads/<profile>/): relative paths resolve against the sandbox and absolute paths that escape it are rejected. Parent directories are created automatically. Set BROWSER_MCP_ALLOW_ANY_WRITE_PATH=1 to write to any path (relative paths then resolve against the supervisor's cwd)."
+                  },
+                  "full_page": {
+                    "default": false,
+                    "description": "PDF only: include full scrollable page (true) vs just viewport (default).",
+                    "type": "boolean"
+                  },
+                  "landscape": {
+                    "default": false,
+                    "description": "PDF only: landscape orientation.",
+                    "type": "boolean"
+                  },
+                  "tab_id": {
+                    "description": "Tab to save; defaults to the active tab.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "format",
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_upload": {
+      "post": {
+        "operationId": "browser_upload",
+        "summary": "Upload one or more files to an <input type=\"file\"> element",
+        "description": "Upload one or more files to an <input type=\"file\"> element. Paths are validated to exist before the call is made. For <input multiple>, pass several files; otherwise one. Locator strategies: selector (CSS), label (<label>-associated), testid (data-testid).",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "description": "The <input type=file>. See target_type for semantics. `label` is usually cleanest for forms."
+                  },
+                  "target_type": {
+                    "default": "selector",
+                    "description": "Locator strategy. selector / label / testid. (role/text rarely apply to file inputs.)",
+                    "type": "string",
+                    "enum": [
+                      "selector",
+                      "label",
+                      "testid"
+                    ]
+                  },
+                  "files": {
+                    "minItems": 1,
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    "description": "Paths to files to upload. By default each must live inside this profile's upload sandbox (~/.browser-mcp/uploads/<profile>/): relative paths resolve against the sandbox and absolute paths that escape it are rejected (set BROWSER_MCP_ALLOW_ANY_UPLOAD_PATH=1 to upload from anywhere). For <input multiple>, pass several; for single-file inputs, pass one. Each file is validated to exist."
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "target",
+                  "files"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_download_wait": {
+      "post": {
+        "operationId": "browser_download_wait",
+        "summary": "Trigger a download and capture the resulting file",
+        "description": "Trigger a download and capture the resulting file. action='click' clicks a button/link; action='navigate' sends the tab to a direct download URL. The file is saved to `save_to`; if that ends with '/' or is an existing directory, the server-suggested filename is used.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "default": "click",
+                    "description": "What to do to trigger the download. 'click' clicks a target element. 'navigate' points the tab at `url` (e.g. a direct download URL).",
+                    "type": "string",
+                    "enum": [
+                      "click",
+                      "navigate"
+                    ]
+                  },
+                  "target": {
+                    "description": "For action='click': the button/link that triggers the download.",
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "target_type": {
+                    "default": "text",
+                    "description": "Locator strategy for `target`.",
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "role",
+                      "label",
+                      "placeholder",
+                      "testid",
+                      "selector"
+                    ]
+                  },
+                  "role": {
+                    "description": "ARIA role when target_type='role'.",
+                    "type": "string",
+                    "enum": [
+                      "alert",
+                      "alertdialog",
+                      "application",
+                      "article",
+                      "banner",
+                      "blockquote",
+                      "button",
+                      "caption",
+                      "cell",
+                      "checkbox",
+                      "code",
+                      "columnheader",
+                      "combobox",
+                      "complementary",
+                      "contentinfo",
+                      "definition",
+                      "deletion",
+                      "dialog",
+                      "directory",
+                      "document",
+                      "emphasis",
+                      "feed",
+                      "figure",
+                      "form",
+                      "generic",
+                      "grid",
+                      "gridcell",
+                      "group",
+                      "heading",
+                      "img",
+                      "insertion",
+                      "link",
+                      "list",
+                      "listbox",
+                      "listitem",
+                      "log",
+                      "main",
+                      "marquee",
+                      "math",
+                      "meter",
+                      "menu",
+                      "menubar",
+                      "menuitem",
+                      "menuitemcheckbox",
+                      "menuitemradio",
+                      "navigation",
+                      "none",
+                      "note",
+                      "option",
+                      "paragraph",
+                      "presentation",
+                      "progressbar",
+                      "radio",
+                      "radiogroup",
+                      "region",
+                      "row",
+                      "rowgroup",
+                      "rowheader",
+                      "scrollbar",
+                      "search",
+                      "searchbox",
+                      "separator",
+                      "slider",
+                      "spinbutton",
+                      "status",
+                      "strong",
+                      "subscript",
+                      "superscript",
+                      "switch",
+                      "tab",
+                      "table",
+                      "tablist",
+                      "tabpanel",
+                      "term",
+                      "textbox",
+                      "time",
+                      "timer",
+                      "toolbar",
+                      "tooltip",
+                      "tree",
+                      "treegrid",
+                      "treeitem"
+                    ]
+                  },
+                  "url": {
+                    "description": "For action='navigate': URL that triggers the download.",
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "save_to": {
+                    "type": "string",
+                    "maxLength": 4096,
+                    "description": "Where to save the downloaded file. By default it must stay inside this profile's download sandbox (~/.browser-mcp/downloads/<profile>/): relative paths resolve against the sandbox and absolute paths that escape it are rejected (set BROWSER_MCP_ALLOW_ANY_WRITE_PATH=1 to disable). If it ends with '/' or points to an existing directory, the server's suggested filename is appended."
+                  },
+                  "timeout_ms": {
+                    "default": 60000,
+                    "description": "How long to wait for the download to start AND complete.",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 600000
+                  },
+                  "tab_id": {
+                    "description": "Tab to act on; defaults to the active tab",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "save_to"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_cookies": {
+      "post": {
+        "operationId": "browser_cookies",
+        "summary": "Read, write, or clear cookies in the current browser profile",
+        "description": "Read, write, or clear cookies in the current browser profile. action='get' returns a list (optionally scoped to URLs). action='set' adds/updates cookies from the `cookies` array — each entry needs either (domain+path) or a single url. action='clear' wipes all cookies.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "get",
+                      "set",
+                      "clear"
+                    ],
+                    "description": "What to do. 'get' returns cookies for given URLs (or all). 'set' adds or updates cookies from `cookies` array. 'clear' removes all cookies (or a filtered subset)."
+                  },
+                  "urls": {
+                    "description": "For 'get': list of URLs to scope to. If omitted, all cookies in the profile are returned.",
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "cookies": {
+                    "description": "For 'set': cookies to add/update. Each needs either a single `url`, or both `domain` and `path`.",
+                    "maxItems": 64,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "value": {
+                          "type": "string",
+                          "maxLength": 4096
+                        },
+                        "domain": {
+                          "type": "string",
+                          "maxLength": 256
+                        },
+                        "path": {
+                          "type": "string",
+                          "maxLength": 1024
+                        },
+                        "url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "expires": {
+                          "description": "Unix seconds. -1 or absent = session cookie.",
+                          "type": "number"
+                        },
+                        "httpOnly": {
+                          "type": "boolean"
+                        },
+                        "secure": {
+                          "type": "boolean"
+                        },
+                        "sameSite": {
+                          "type": "string",
+                          "enum": [
+                            "Strict",
+                            "Lax",
+                            "None"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "value"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_network_log": {
+      "post": {
+        "operationId": "browser_network_log",
+        "summary": "Inspect recent network requests (ring buffer of last 500 across all tabs in the profile)",
+        "description": "Inspect recent network requests (ring buffer of last 500 across all tabs in the profile). Filter by tab_id, URL regex, HTTP method, min_status (e.g. 400 for errors only), or failed_only. Each entry shows time, status, method, URL, resource type, and duration. Useful to debug SPA behaviour: what API calls fired, what failed, what returned 4xx/5xx.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tab_id": {
+                    "description": "Only entries from this tab. Omit to see all tabs in the profile.",
+                    "type": "string"
+                  },
+                  "limit": {
+                    "default": 100,
+                    "description": "Keep at most this many of the most recent matching entries (printed oldest-first).",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 500
+                  },
+                  "url_regex": {
+                    "description": "JS regex; only URLs matching are returned. Compiled and run on the server against recent URLs — keep the pattern simple (no need for catastrophic-backtracking constructs).",
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "method": {
+                    "description": "Filter by HTTP method.",
+                    "type": "string",
+                    "enum": [
+                      "GET",
+                      "POST",
+                      "PUT",
+                      "DELETE",
+                      "PATCH",
+                      "OPTIONS",
+                      "HEAD"
+                    ]
+                  },
+                  "failed_only": {
+                    "default": false,
+                    "description": "Only return requests that failed (net::ERR_*, blocked, aborted).",
+                    "type": "boolean"
+                  },
+                  "min_status": {
+                    "description": "Only return responses with status >= this. Use 400 to see errors only.",
+                    "type": "integer",
+                    "minimum": 100,
+                    "maximum": 599
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_console_log": {
+      "post": {
+        "operationId": "browser_console_log",
+        "summary": "Inspect recent browser console output (ring buffer of last 500 across all tabs in the profile): console.log/info/warn/error/debug plus uncaught page errors (level 'pageerror')",
+        "description": "Inspect recent browser console output (ring buffer of last 500 across all tabs in the profile): console.log/info/warn/error/debug plus uncaught page errors (level 'pageerror'). Filter by tab_id, level, or text_regex. Great for debugging SPA errors the UI swallowed.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tab_id": {
+                    "description": "Only entries from this tab. Omit to see all tabs in the profile.",
+                    "type": "string"
+                  },
+                  "level": {
+                    "description": "Filter by level. 'pageerror' = uncaught exceptions on the page.",
+                    "type": "string",
+                    "enum": [
+                      "log",
+                      "info",
+                      "warn",
+                      "error",
+                      "debug",
+                      "pageerror"
+                    ]
+                  },
+                  "limit": {
+                    "default": 100,
+                    "description": "Keep at most this many of the most recent matching entries (printed oldest-first).",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 500
+                  },
+                  "text_regex": {
+                    "description": "JS regex; only messages whose text matches are returned. Compiled and run on the server — keep it simple.",
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_network_body": {
+      "post": {
+        "operationId": "browser_network_body",
+        "summary": "Return a captured HTTP response body (what an XHR/fetch returned)",
+        "description": "Return a captured HTTP response body (what an XHR/fetch returned). Only small texty/JSON responses are captured (last 50, size-capped). Filter by url_regex and method; index counts back from the most recent match (0 = latest).",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "url_regex": {
+                    "description": "JS regex; only responses whose URL matches are considered. Compiled and run on the server.",
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "method": {
+                    "description": "Filter by HTTP method.",
+                    "type": "string",
+                    "enum": [
+                      "GET",
+                      "POST",
+                      "PUT",
+                      "DELETE",
+                      "PATCH",
+                      "OPTIONS",
+                      "HEAD"
+                    ]
+                  },
+                  "index": {
+                    "default": 0,
+                    "description": "Which match to return, counting back from the most recent (0 = latest, 1 = previous, …).",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_storage": {
+      "post": {
+        "operationId": "browser_storage",
+        "summary": "Read/write the active tab's localStorage or sessionStorage (per-origin)",
+        "description": "Read/write the active tab's localStorage or sessionStorage (per-origin). action=get returns a key (or all keys), set writes key+value, remove deletes a key, clear wipes the store. localStorage persists in the named profile.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "get",
+                      "set",
+                      "remove",
+                      "clear"
+                    ],
+                    "description": "get (a key, or all if `key` omitted), set (`key`+`value`), remove (`key`), or clear all."
+                  },
+                  "area": {
+                    "default": "local",
+                    "description": "Which store: localStorage (default, persists in the profile) or sessionStorage.",
+                    "type": "string",
+                    "enum": [
+                      "local",
+                      "session"
+                    ]
+                  },
+                  "key": {
+                    "description": "Storage key. Required for set/remove; optional for get.",
+                    "type": "string",
+                    "maxLength": 1024
+                  },
+                  "value": {
+                    "description": "Value to store. Required for set.",
+                    "type": "string",
+                    "maxLength": 100000
+                  },
+                  "tab_id": {
+                    "description": "Tab whose origin to use; defaults to the active tab. Storage is per-origin.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_handle_dialog": {
+      "post": {
+        "operationId": "browser_handle_dialog",
+        "summary": "Set how the next native dialog (alert/confirm/prompt) is handled — call this BEFORE the action that triggers it",
+        "description": "Set how the next native dialog (alert/confirm/prompt) is handled — call this BEFORE the action that triggers it. action=accept (OK) or dismiss (Cancel); prompt_text fills a prompt; persist=true applies to all dialogs. Without this, dialogs are auto-dismissed.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "default": "accept",
+                    "description": "How to respond to the next native dialog: accept (OK) or dismiss (Cancel).",
+                    "type": "string",
+                    "enum": [
+                      "accept",
+                      "dismiss"
+                    ]
+                  },
+                  "prompt_text": {
+                    "description": "Text to enter into a window.prompt() before accepting. Ignored for alert/confirm.",
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "persist": {
+                    "default": false,
+                    "description": "false (default) = apply to the next dialog only, then revert to auto-dismiss; true = apply to all dialogs until changed.",
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_set_geolocation": {
+      "post": {
+        "operationId": "browser_set_geolocation",
+        "summary": "Set the emulated geolocation coordinates for the browser context",
+        "description": "Set the emulated geolocation coordinates for the browser context. Pair with browser_permissions (grant 'geolocation') so the page's navigator.geolocation can read them.",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "latitude": {
+                    "type": "number",
+                    "minimum": -90,
+                    "maximum": 90,
+                    "description": "Latitude in degrees (-90..90)."
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "minimum": -180,
+                    "maximum": 180,
+                    "description": "Longitude in degrees (-180..180)."
+                  },
+                  "accuracy": {
+                    "description": "Accuracy in meters (optional).",
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "latitude",
+                  "longitude"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/browser_configure": {
+      "post": {
+        "operationId": "browser_configure",
+        "summary": "Change browser settings at runtime",
+        "description": "Change browser settings at runtime. All parameters are optional — pass only what you want to change. Viewport and color_scheme apply to the current (or specified) tab. User-agent and locale apply to the whole browser context (all tabs).",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "description": "Which profile (shared live browser) to target. Defaults to 'default'.",
+            "schema": {
+              "type": "string",
+              "default": "default"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "device_preset": {
+                    "description": "Full device emulation preset. Restarts the browser context (all tabs are closed). Sets viewport, deviceScaleFactor, isMobile, hasTouch, and userAgent. Available: iphone-15, iphone-se, ipad, ipad-pro, pixel-8, galaxy-s24, desktop-retina. Overrides viewport_preset, ua_preset, and device_scale_factor if set.",
+                    "type": "string",
+                    "enum": [
+                      "iphone-15",
+                      "iphone-se",
+                      "ipad",
+                      "ipad-pro",
+                      "pixel-8",
+                      "galaxy-s24",
+                      "desktop-retina"
+                    ]
+                  },
+                  "viewport_preset": {
+                    "description": "Viewport preset (no context restart). mobile=375x812, tablet=768x1024, desktop=1280x900, desktop-hd=1920x1080, desktop-2k=2560x1440. Ignored if device_preset or viewport_width/viewport_height are set.",
+                    "type": "string",
+                    "enum": [
+                      "mobile",
+                      "tablet",
+                      "desktop",
+                      "desktop-hd",
+                      "desktop-2k"
+                    ]
+                  },
+                  "viewport_width": {
+                    "description": "Custom viewport width in pixels (no context restart). Must be set together with viewport_height.",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "viewport_height": {
+                    "description": "Custom viewport height in pixels (no context restart). Must be set together with viewport_width.",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "device_scale_factor": {
+                    "description": "Device pixel ratio, e.g. 2 for retina. Restarts the browser context (all tabs are closed).",
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "is_mobile": {
+                    "description": "Enable mobile mode (mobile viewport behavior + touch). Restarts the browser context.",
+                    "type": "boolean"
+                  },
+                  "user_agent": {
+                    "description": "Custom User-Agent string. Overrides ua_preset if both are set.",
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "ua_preset": {
+                    "description": "User-Agent preset. Ignored if user_agent or device_preset is set.",
+                    "type": "string",
+                    "enum": [
+                      "chrome-desktop",
+                      "chrome-mobile",
+                      "safari-desktop",
+                      "safari-mobile",
+                      "firefox-desktop"
+                    ]
+                  },
+                  "locale": {
+                    "description": "Accept-Language locale (e.g. \"en-US\", \"ru-RU\", \"ja-JP\")",
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "color_scheme": {
+                    "description": "Emulated color scheme (prefers-color-scheme)",
+                    "type": "string",
+                    "enum": [
+                      "light",
+                      "dark",
+                      "no-preference"
+                    ]
+                  },
+                  "extra_headers": {
+                    "description": "Custom HTTP headers merged into all future requests (e.g. an auth token). Context-wide, no restart.",
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 4096
+                    }
+                  },
+                  "tab_id": {
+                    "description": "Tab to apply viewport/color_scheme to; defaults to the active tab. Ignored when context restarts.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The tool ran. `ok:true` with `data`/`content`, or `ok:false` for a tool-level failure (e.g. a failed assertion or element not found) — both are HTTP 200.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments (zod validation) or invalid profile name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tool.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools": {
+      "get": {
+        "operationId": "listTools",
+        "summary": "List available tools",
+        "responses": {
+          "200": {
+            "description": "The tool catalogue (names + descriptions).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profiles/{profile}": {
+      "delete": {
+        "operationId": "releaseProfile",
+        "summary": "Release a profile holder (close its browser if no MCP session holds it)",
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Released ({ ok:true, released:boolean }).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Required only when the server is started with an API key (BROWSER_MCP_API_KEY)."
+      }
+    },
+    "schemas": {
+      "ToolResponse": {
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "false for a tool-level failure (still HTTP 200)."
+          },
+          "data": {
+            "description": "Structured result (shape depends on the tool); absent for some action-only tools."
+          },
+          "content": {
+            "type": "array",
+            "description": "Human/LLM-formatted blocks (text, or base64 image for screenshots), kept for parity with MCP.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "issues": {}
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "ok",
+          "error"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": false
+          },
+          "error": {
+            "type": "object",
+            "required": [
+              "message"
+            ],
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "issues": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}

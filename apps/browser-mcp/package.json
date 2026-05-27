@@ -20,6 +20,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:integration": "vitest run --dir test/integration",
+    "openapi": "tsx scripts/gen-openapi.ts",
     "prepublishOnly": "npm run build",
     "prepack": "cp ../../README.md ../../LICENSE .",
     "postinstall": "npx playwright install chromium"

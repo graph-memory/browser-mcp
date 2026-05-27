@@ -86,6 +86,15 @@ describe.skipIf(SKIP)("app — stateless REST surface (/api/v1)", () => {
     expect(body.tools).toHaveLength(36);
   });
 
+  it("GET /api/v1/openapi.json serves a valid 3.1 spec", async () => {
+    const res = await fetch(`${baseUrl}/api/v1/openapi.json`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    const spec = (await res.json()) as { openapi: string; paths: Record<string, unknown> };
+    expect(spec.openapi).toBe("3.1.0");
+    expect(spec.paths["/api/v1/tools/browser_open"]).toBeDefined();
+  });
+
   it("400 with zod issues when args fail validation", async () => {
     const { status, body } = await tool("browser_open", {}, "p1");
     expect(status).toBe(400);

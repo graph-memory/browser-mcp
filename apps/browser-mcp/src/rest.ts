@@ -78,12 +78,16 @@ export function toolsDiscovery(): { tools: Array<{ name: string; description: st
 export type ApiRoute =
   | { kind: "tool"; name: string }
   | { kind: "tools" }
+  | { kind: "openapi" }
   | { kind: "release"; profile: string }
   | { kind: "method_not_allowed" }
   | null;
 
 /** Match an /api/v1 request to a route. Returns null for unknown /api paths (→ 404). */
 export function parseApiRoute(method: string, pathname: string): ApiRoute {
+  if (pathname === "/api/v1/openapi.json") {
+    return method === "GET" ? { kind: "openapi" } : { kind: "method_not_allowed" };
+  }
   if (pathname === "/api/v1/tools") {
     return method === "GET" ? { kind: "tools" } : { kind: "method_not_allowed" };
   }

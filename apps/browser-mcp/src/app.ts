@@ -9,6 +9,7 @@ import { BrowserSession } from "./browser-session.js";
 import { withLog, type ToolResult } from "./tool-runtime.js";
 import { TOOLS } from "./registry.js";
 import { runTool, toolsDiscovery, parseApiRoute } from "./rest.js";
+import { buildOpenApiSpec } from "./openapi.js";
 import { logInfo, logError } from "./log.js";
 
 // redactToolArgs moved to tool-runtime.ts; re-exported here for the existing
@@ -100,6 +101,8 @@ export function createApp(opts: AppOptions = {}): {
 } {
   const sessions = new Map<string, Session>();
   const SESSION_TTL_MS = config.sessionTtlSec * 1000;
+  // Built once on first request to /api/v1/openapi.json (deterministic).
+  let openApiCache: string | undefined;
 
   function profileSessionCount(profileName: string): number {
     let count = 0;
@@ -273,6 +276,13 @@ export function createApp(opts: AppOptions = {}): {
 
     if (route === null) { writeError(res, 404, "Not found", true); return; }
     if (route.kind === "method_not_allowed") { writeError(res, 405, "Method not allowed", true); return; }
+    if (route.kind === "openapi") {
+      if (!openApiCache) openApiCache = JSON.stringify(buildOpenApiSpec());
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(openApiCache);
+      return;
+    }
     if (route.kind === "tools") {
       res.statusCode = 200;
       res.setHeader("content-type", "application/json");
