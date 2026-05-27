@@ -154,6 +154,25 @@ describe.skipIf(SKIP)("tools/interact — click, type, scroll, find, wait, evalu
     expect(textOf(r)).toContain("visible");
   }, 60_000);
 
+  it("wait — JS condition resolves once it becomes truthy", async () => {
+    await open({ url: fixtureUrl("form.html") });
+    await evaluate({ expression: "setTimeout(() => { window.__ready = true; }, 300)" });
+    const r = await wait({ condition: "window.__ready === true", state: "visible", timeout: 5000 });
+    expect(textOf(r)).toContain("Condition met");
+  }, 60_000);
+
+  it("wait — JS condition that never becomes true times out", async () => {
+    await open({ url: fixtureUrl("form.html") });
+    await expect(wait({ condition: "window.__never === true", state: "visible", timeout: 800 })).rejects.toThrow();
+  }, 60_000);
+
+  it("wait — providing both selector and condition is an error", async () => {
+    await open({ url: fixtureUrl("form.html") });
+    const r = await wait({ selector: "body", condition: "true", state: "visible", timeout: 1000 });
+    expect(isToolError(r)).toBe(true);
+    expect(textOf(r)).toContain("exactly one");
+  }, 60_000);
+
   it("evaluate — returns JSON-serialized result", async () => {
     await open({ url: fixtureUrl("article.html") });
     const r = await evaluate({ expression: "1 + 2" });

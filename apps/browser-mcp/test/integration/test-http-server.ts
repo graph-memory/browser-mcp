@@ -11,6 +11,7 @@ export type RouteSpec = {
   body?: string;
   delayMs?: number;
   failWith?: string; // abort connection with this error before responding
+  echoHeaders?: boolean; // respond with the request headers as a JSON body
 };
 
 export async function startTestServer(routes: Record<string, RouteSpec>): Promise<{
@@ -34,7 +35,7 @@ export async function startTestServer(routes: Record<string, RouteSpec>): Promis
       res.statusCode = spec.status ?? 200;
       for (const [k, v] of Object.entries(spec.headers ?? {})) res.setHeader(k, v);
       if (!res.hasHeader("content-type")) res.setHeader("content-type", "text/html; charset=utf-8");
-      res.end(spec.body ?? "");
+      res.end(spec.echoHeaders ? JSON.stringify(req.headers) : (spec.body ?? ""));
     };
     if (spec.delayMs) setTimeout(go, spec.delayMs);
     else go();

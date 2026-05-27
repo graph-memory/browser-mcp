@@ -230,11 +230,13 @@ export function makeFindHandler(browser: BrowserManager) {
 }
 
 export const waitSchema = {
-  selector: z.string().max(2_048).describe("CSS selector to wait for"),
+  selector: z.string().max(2_048).optional().describe("CSS selector to wait for. Provide this OR `condition` (not both)."),
+  condition: z.string().max(10_000).optional()
+    .describe("JS expression polled until truthy (page.waitForFunction), e.g. \"window.__ready === true\". Provide this OR `selector`."),
   state: z
     .enum(["visible", "hidden", "attached", "detached"])
     .default("visible")
-    .describe("Element state to wait for"),
+    .describe("Element state to wait for (only with `selector`)"),
   timeout: z
     .number()
     .int()
@@ -246,20 +248,30 @@ export const waitSchema = {
 export function makeWaitHandler(browser: BrowserManager) {
   return async ({
     selector,
+    condition,
     state,
     timeout,
     tab_id,
   }: {
-    selector: string;
+    selector?: string;
+    condition?: string;
     state: "visible" | "hidden" | "attached" | "detached";
     timeout: number;
     tab_id?: string;
   }) => {
+    if ((!selector && !condition) || (selector && condition)) {
+      return {
+        isError: true,
+        content: [{ type: "text" as const, text: "provide exactly one of `selector` or `condition`" }],
+      };
+    }
     const page = browser.getPage(tab_id);
-    await page.locator(selector).waitFor({ state, timeout });
-    return {
-      content: [{ type: "text" as const, text: `Element ${selector} is ${state}` }],
-    };
+    if (condition) {
+      await page.waitForFunction(condition, undefined, { timeout });
+      return { content: [{ type: "text" as const, text: `Condition met: ${condition}` }] };
+    }
+    await page.locator(selector!).waitFor({ state, timeout });
+    return { content: [{ type: "text" as const, text: `Element ${selector} is ${state}` }] };
   };
 }
 

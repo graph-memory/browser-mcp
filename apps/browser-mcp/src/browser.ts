@@ -877,6 +877,13 @@ export class BrowserManager {
     await page.emulateMedia({ colorScheme: scheme });
   }
 
+  /** Merge custom HTTP headers into the context's extra headers (all future requests). */
+  async setExtraHeaders(headers: Record<string, string>): Promise<void> {
+    const ctx = await this.ensureContext();
+    Object.assign(this._extraHeaders, headers);
+    await ctx.setExtraHTTPHeaders({ ...this._extraHeaders });
+  }
+
   private _extraHeaders: Record<string, string> = {};
 
   /**

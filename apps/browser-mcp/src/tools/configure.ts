@@ -139,6 +139,10 @@ export const configureSchema = {
     .enum(["light", "dark", "no-preference"])
     .optional()
     .describe("Emulated color scheme (prefers-color-scheme)"),
+  extra_headers: z
+    .record(z.string().max(256), z.string().max(4_096))
+    .optional()
+    .describe("Custom HTTP headers merged into all future requests (e.g. an auth token). Context-wide, no restart."),
   tab_id: z.string().optional().describe("Tab to apply viewport/color_scheme to; defaults to the active tab. Ignored when context restarts."),
 };
 
@@ -154,6 +158,7 @@ export function makeConfigureHandler(browser: BrowserManager) {
     ua_preset,
     locale,
     color_scheme,
+    extra_headers,
     tab_id,
   }: {
     device_preset?: string;
@@ -166,6 +171,7 @@ export function makeConfigureHandler(browser: BrowserManager) {
     ua_preset?: string;
     locale?: string;
     color_scheme?: "light" | "dark" | "no-preference";
+    extra_headers?: Record<string, string>;
     tab_id?: string;
   }) => {
     // viewport_width / viewport_height only take effect as a pair. Flag the
@@ -260,6 +266,13 @@ export function makeConfigureHandler(browser: BrowserManager) {
         await browser.setColorScheme(color_scheme, tab_id);
         applied.push(`color_scheme: ${color_scheme}`);
       }
+    }
+
+    // Context-wide, independent of restart — apply last so a restart above
+    // doesn't drop the headers.
+    if (extra_headers && Object.keys(extra_headers).length > 0) {
+      await browser.setExtraHeaders(extra_headers);
+      applied.push(`extra_headers: ${Object.keys(extra_headers).join(", ")}`);
     }
 
     if (!applied.length) {
