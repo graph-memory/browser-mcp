@@ -7,7 +7,7 @@ export const networkSchema = {
   limit: z.number().int().positive().max(500).default(100)
     .describe("Keep at most this many of the most recent matching entries (printed oldest-first)."),
   url_regex: z.string().max(512).optional()
-    .describe("JS regex; only URLs matching are returned."),
+    .describe("JS regex; only URLs matching are returned. Compiled and run on the server against recent URLs — keep the pattern simple (no need for catastrophic-backtracking constructs)."),
   method: z.enum(["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]).optional()
     .describe("Filter by HTTP method."),
   failed_only: z.boolean().default(false)

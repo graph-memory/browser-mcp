@@ -25,7 +25,8 @@ export const expectSchema = {
   expected: z.union([z.string().max(4_096), z.number()]).optional()
     .describe(
       "Expected value. Required for text_*/value_*/count/url_*/title_* assertions. " +
-      "For count it must be a number; for *_matches it's a regex string.",
+      "For count it must be a number; for *_matches it's a regex string (compiled and run " +
+      "on the server — keep it simple, avoid catastrophic-backtracking patterns).",
     ),
   timeout_ms: z.number().int().positive().max(60_000).default(5_000)
     .describe("How long to retry the assertion before failing."),

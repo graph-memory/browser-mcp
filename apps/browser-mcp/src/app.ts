@@ -175,7 +175,7 @@ export function buildServer(browser: BrowserManager): McpServer {
 
   server.registerTool("browser_find", {
     description:
-      "Find text occurrences on the current page. Returns up to `limit` snippets (default 10), each with surrounding context and a stable CSS selector suitable for browser_click/browser_type.",
+      "Find text occurrences on the current page. Returns up to `limit` snippets (default 10), each with surrounding context and a best-effort CSS selector for browser_click/browser_type — the selector is depth-capped and may not be unique on complex DOM, so prefer role/label/text locators when possible.",
     inputSchema: findSchema,
   }, withLog("browser_find", makeFindHandler(browser)));
 
