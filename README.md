@@ -12,7 +12,7 @@ Claude Code ──HTTP──▶  browser-mcp  ──Playwright──▶  Chromiu
                        ├── MCP sessions (per-client McpServer + transport)
                        ├── named profiles (persistent cookies / localStorage)
                        ├── BrowserContext per profile (reused by sessions)
-                       ├── 25 tools: open / read / click / type / snapshot / …
+                       ├── 36 tools: open / read / click / type / snapshot / …
                        └── network ring, AX snapshot store, CSRF-hardened HTTP
 ```
 
@@ -158,8 +158,10 @@ browser_cookies       { action: "get", urls: ["https://example.com/"] }
 
 ## Features
 
-- **25 tools** covering navigation, reading, interaction, assertions, IO,
-  network inspection, cookies, permissions, and device emulation. See the
+- **36 tools** covering navigation, reading, interaction (click / type / press /
+  hover / select / check / drag / batch form-fill), assertions, IO, network +
+  console inspection (incl. response bodies), cookies / localStorage, dialogs,
+  permissions, geolocation, and device emulation. See the
   [Tools reference](#tools-reference).
 - **Persistent named profiles.** Each URL path (`/mcp/<name>`) gets its own
   cookies and localStorage under `~/.browser-mcp/profiles/<name>/`. Log in
@@ -215,7 +217,7 @@ browser_cookies       { action: "get", urls: ["https://example.com/"] }
   Hard cap on concurrent sessions (`max_sessions`, default 50).
 - **Multi-arch Docker image.** linux/amd64 + linux/arm64, non-root `browser`
   user, `tini` as PID 1 for zombie reaping, healthcheck wired to `/health`.
-- **Full test suite.** 365 tests (unit + integration against a real headless
+- **Full test suite.** 417 tests (unit + integration against a real headless
   Chromium) covering every tool handler, the HTTP server (auth/CSRF/session
   lifecycle), and the AX-tree pipeline. See [Testing](#testing).
 
@@ -239,8 +241,15 @@ escape the base directory.
 Profiles are stored at `~/.browser-mcp/profiles/<name>/` (override with
 `--profile-dir` or `BROWSER_MCP_PROFILE_DIR`).
 
-Multiple MCP sessions on the same profile share one `BrowserContext`. When the
-last session on a profile expires, the context shuts down and Chromium exits.
+Multiple MCP sessions on the same profile share one `BrowserContext` (so a login
+in one session is visible in another). When the last session on a profile
+expires, the context shuts down and Chromium exits.
+
+Each session keeps its **own active tab and snapshot store**, so concurrent
+clients on the same profile don't clobber each other's "current tab" on
+`tab_id`-less calls or collide on `store_as` names. The open tabs themselves are
+shared (visible to all sessions via `browser_tabs_list`). For fully independent
+concurrent clients, give each its own named profile (`/mcp/<name>`).
 
 ### Multi-profile Claude Code config
 
@@ -346,14 +355,53 @@ If `submit=true`, presses Enter after typing.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `target` | string | yes* | — | Target element (see `target_type`). *Accepts `selector` for back-compat |
-| `target_type` | same as click | no | `selector` | Locator strategy |
+| `target` | string | yes | — | Target element (see `target_type`) |
+| `target_type` | same as click | no | `text` | Locator strategy |
 | `role` | ARIA role | no | — | For `role` locator (typically `textbox`) |
 | `exact` | boolean | no | `false` | Exact match |
 | `text` | string | yes | — | Text to type |
 | `submit` | boolean | no | `false` | Press Enter after typing |
 | `tab_id` | string | no | active tab | Tab to act on |
-| `selector` | string | no | — | **Deprecated** alias for `target` with `target_type=selector` |
+
+> **Breaking change:** `target_type` defaults to `text` (was `selector`),
+> matching `browser_click`. The deprecated `selector` alias has been removed —
+> pass `target` with `target_type="selector"` for CSS.
+
+### `browser_press`
+
+Press a key or chord (Playwright syntax: `Enter`, `Tab`, `Escape`, `ArrowDown`,
+`Control+A`, `Meta+C`). With `target` (+ `target_type`/`role`/`exact`), focuses
+that element first; without it, the key goes to the page's active element.
+
+### `browser_hover`
+
+Hover the mouse over an element to reveal menus / tooltips / hover-only
+controls. Same locator params as `browser_click`.
+
+### `browser_select_option`
+
+Select option(s) in a native `<select>`. `by`: `value` (default) / `label` /
+`index`; `values` is an array (pass several for `<select multiple>`). Locator
+params as usual (`target_type` default `label`).
+
+### `browser_check`
+
+Set a checkbox/radio to checked/unchecked **idempotently** (unlike
+`browser_click`, which toggles). `checked` (default `true`) ensures the state;
+no-op if already there.
+
+### `browser_drag`
+
+Drag one element onto another (HTML5 DnD / sortable lists). `source` +
+`source_type`/`source_role` and `target` + `target_type`/`target_role`.
+
+### `browser_fill_form`
+
+Fill a whole form in one call. `fields[]` is applied in order; each field sets
+exactly one of `value` (text), `checked` (checkbox/radio), or `options` (native
+`<select>`). Aborts on the first failing field (reports which). `submit: true`
+presses Enter on the last field; `submit: { target, target_type, role }` clicks
+a submit button afterwards.
 
 ### `browser_expect`
 
@@ -365,7 +413,7 @@ no separate `browser_wait` needed for flaky conditions. Returns `PASS` or
 |-----------|------|----------|---------|-------------|
 | `assertion` | one of 13 (see below) | yes | — | What to assert |
 | `target` | string | depends | — | Element target (required for element / text / count / value assertions) |
-| `target_type` | same as click | no | `selector` | Locator strategy |
+| `target_type` | same as click | no | `text` | Locator strategy (was `selector` before; breaking) |
 | `role` | ARIA role | no | — | For `role` locator |
 | `exact` | boolean | no | `false` | Exact match |
 | `expected` | string \| number | depends | — | For text/value/count/url/title; for `*_matches` it's a regex |
@@ -513,6 +561,19 @@ Read, write, or clear cookies in the profile.
 | `urls` | array of URLs | no | — | `get`: scope to these URLs |
 | `cookies` | array of cookie objects | iff set | — | Each needs (domain+path) or a single url. Fields: `name`, `value`, `domain`, `path`, `url`, `expires`, `httpOnly`, `secure`, `sameSite` |
 
+### `browser_storage`
+
+Read/write the active tab's `localStorage` or `sessionStorage` (per-origin;
+localStorage persists in the profile). Symmetric with `browser_cookies`.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | `get`\|`set`\|`remove`\|`clear` | yes | — | Operation |
+| `area` | `local`\|`session` | no | `local` | Which store |
+| `key` | string | iff set/remove | — | Storage key (optional for `get` → returns all) |
+| `value` | string | iff set | — | Value to store |
+| `tab_id` | string | no | active tab | Tab whose origin to use |
+
 ### `browser_network_log`
 
 Inspect recent network requests. Ring buffer of the last 500 per profile,
@@ -535,6 +596,33 @@ Output:
 14:16:32.300  FAIL(...)   POST    https://third-party/track  [fetch, 2013ms]
 ```
 
+### `browser_network_body`
+
+Return a captured HTTP **response body** (what an XHR/fetch returned). Only small
+texty/JSON responses are captured (last 50, size-capped ~256 KB). Filter by
+`url_regex` / `method`; `index` counts back from the most recent match (`0` =
+latest). Pairs with `browser_network_log` to inspect what an API call returned.
+
+### `browser_console_log`
+
+Inspect recent browser console output (ring buffer of last 500 per profile):
+`console.log`/`info`/`warn`/`error`/`debug` plus uncaught page errors (level
+`pageerror`). Filter by `tab_id`, `level`, or `text_regex`. Output is
+chronological, like `browser_network_log`.
+
+### `browser_handle_dialog`
+
+Set how the **next** native dialog (`alert`/`confirm`/`prompt`) is handled —
+call it *before* the action that triggers the dialog. `action`: `accept`
+(default) / `dismiss`; `prompt_text` fills a `prompt`; `persist: true` applies to
+all dialogs. Without it, dialogs are auto-dismissed.
+
+### `browser_set_geolocation`
+
+Set the emulated geolocation (`latitude`, `longitude`, optional `accuracy`) for
+the context. Pair with `browser_permissions` (grant `geolocation`) so the page's
+`navigator.geolocation` can read it.
+
 ### `browser_scroll`
 
 Scroll the current tab. `up`/`down` by `amount` pixels; `top`/`bottom` jumps.
@@ -552,12 +640,14 @@ Navigate in history. Only `tab_id` parameter. `back`/`forward` report
 
 ### `browser_wait`
 
-Wait for an element to reach a given state.
+Wait for an element to reach a given state, **or** for a JS condition to become
+truthy. Provide exactly one of `selector` or `condition`.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `selector` | string | yes | — | CSS selector |
-| `state` | `visible`\|`hidden`\|`attached`\|`detached` | no | `visible` | Target state |
+| `selector` | string | one of | — | CSS selector to wait for |
+| `condition` | string | one of | — | JS expression polled until truthy (`page.waitForFunction`), e.g. `window.__ready === true` |
+| `state` | `visible`\|`hidden`\|`attached`\|`detached` | no | `visible` | Target state (with `selector`) |
 | `timeout` | integer | no | `10000` | Max wait (ms) |
 | `tab_id` | string | no | active tab | Tab |
 
@@ -613,6 +703,7 @@ tabs are closed, response flags it).
 - `user_agent` — custom
 - `ua_preset` — `chrome-desktop` / `chrome-mobile` / `safari-desktop` / `safari-mobile` / `firefox-desktop`
 - `locale` — e.g. `en-US`, `ru-RU`, `ja-JP`
+- `extra_headers` — custom HTTP headers (`{ "Authorization": "Bearer …" }`) merged into all future requests
 
 **Restart required:**
 - `device_preset` — `iphone-15` / `iphone-se` / `ipad` / `ipad-pro` / `pixel-8` / `galaxy-s24` / `desktop-retina`
@@ -922,15 +1013,15 @@ URLs visited, cookies, or any page content.
 ## Testing
 
 ```bash
-npm test                  # run 365 tests once (vitest)
+npm test                  # run 417 tests once (vitest)
 npm run test:watch        # watch mode
 npm run test:coverage     # run + coverage report under coverage/
 npm run test:integration  # Playwright-backed tests only
 ```
 
-The suite is split across 32 files:
+The suite is split across 42 files:
 
-- **Unit** (15 files): pure-logic tests for `render.ts` (compact helpers),
+- **Unit** (17 files): pure-logic tests for `render.ts` (compact helpers),
   AX-tree manipulation (`cdpAxToTree` with synthetic CDP payloads,
   `filterCompact`, `diffSnapshots`, `collapseRedundantText`, `renderAxNode`),
   `config.ts` helpers, `log.ts`, `lib/auth.ts`, `lib/url-safety.ts`,
@@ -939,7 +1030,7 @@ The suite is split across 32 files:
   mock-driven tool handlers for edge branches (snapshot diff overflow, cookies
   no-flags, PDF headless error, download failure, permissions without http
   origin).
-- **Integration** (17 files): drive a real headless Chromium via
+- **Integration** (25 files): drive a real headless Chromium via
   `BrowserManager` against local HTML fixtures. Covers every tool handler,
   `BrowserManager`'s public surface (including proxy-configured context), the
   HTTP server (CSRF / auth / session lifecycle / MCP JSON-RPC / session cap),
@@ -1030,7 +1121,7 @@ cd browser-mcp
 npm install         # installs all workspaces, hoists node_modules to root
 npm run dev         # run with tsx (no build step)
 npm run build       # compile TypeScript to apps/browser-mcp/dist/
-npm test            # full test suite (365 tests)
+npm test            # full test suite (417 tests)
 npm run test:coverage
 ```
 
