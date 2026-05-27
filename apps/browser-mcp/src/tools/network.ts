@@ -46,7 +46,10 @@ export function makeNetworkHandler(browser: BrowserApi) {
     }
 
     if (result.entries.length === 0) {
-      return { content: [{ type: "text" as const, text: `(no network entries match; ring has ${result.total} total)` }] };
+      return {
+        content: [{ type: "text" as const, text: `(no network entries match; ring has ${result.total} total)` }],
+        data: { entries: result.entries, total: result.total },
+      };
     }
 
     const lines: string[] = [];
@@ -60,6 +63,9 @@ export function makeNetworkHandler(browser: BrowserApi) {
       const rt = e.resource_type;
       lines.push(`${t}  ${status.padEnd(10)}  ${e.method.padEnd(7)} ${e.url}  [${rt}, ${dur}]`);
     }
-    return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    return {
+      content: [{ type: "text" as const, text: lines.join("\n") }],
+      data: { entries: result.entries, total: result.total },
+    };
   };
 }

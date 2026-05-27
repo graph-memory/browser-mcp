@@ -31,12 +31,16 @@ export function makeStorageHandler(browser: BrowserApi) {
     const result = await browser.storage(a.action, a.area, a.key, a.value, a.tab_id);
 
     if (a.action === "get") {
-      const entries = Object.entries(result as Record<string, string | null>);
-      if (entries.length === 0) return { content: [{ type: "text" as const, text: `(${a.area}Storage empty)` }] };
+      const record = result as Record<string, string | null>;
+      const entries = Object.entries(record);
+      if (entries.length === 0) return { content: [{ type: "text" as const, text: `(${a.area}Storage empty)` }], data: record };
       const body = entries.map(([k, v]) => `${k} = ${v}`).join("\n");
-      return { content: [{ type: "text" as const, text: truncate(body, config.maxChars) }] };
+      return { content: [{ type: "text" as const, text: truncate(body, config.maxChars) }], data: record };
     }
     const verb = a.action === "set" ? `Set ${a.key}` : a.action === "remove" ? `Removed ${a.key}` : "Cleared";
-    return { content: [{ type: "text" as const, text: `${verb} in ${a.area}Storage` }] };
+    return {
+      content: [{ type: "text" as const, text: `${verb} in ${a.area}Storage` }],
+      data: { ok: true, action: a.action, area: a.area, ...(a.key !== undefined ? { key: a.key } : {}) },
+    };
   };
 }

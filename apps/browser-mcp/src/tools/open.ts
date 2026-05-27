@@ -28,6 +28,7 @@ export function makeOpenHandler(browser: BrowserApi) {
           text: `${statusLine}\nURL: ${info.url}\nTitle: ${info.title}\nTab: ${info.tab_id}`,
         },
       ],
+      data: info,
     };
   };
 }

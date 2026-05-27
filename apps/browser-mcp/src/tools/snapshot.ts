@@ -92,6 +92,7 @@ export function makeSnapshotHandler(browser: BrowserApi) {
         content: [
           { type: "text" as const, text: "(empty accessibility tree — page may still be loading)" },
         ],
+        data: null,
       };
     }
 
@@ -114,7 +115,7 @@ export function makeSnapshotHandler(browser: BrowserApi) {
       if (args.store_as) browser.storeSnapshot(args.store_as, effective);
 
       if (d.added.length === 0 && d.removed.length === 0 && d.changed.length === 0) {
-        return { content: [{ type: "text" as const, text: `No changes since "${args.diff_against}"` }] };
+        return { content: [{ type: "text" as const, text: `No changes since "${args.diff_against}"` }], data: { diff: d } };
       }
       const lines: string[] = [`── diff vs "${args.diff_against}" ──`];
       if (d.added.length) {
@@ -132,7 +133,7 @@ export function makeSnapshotHandler(browser: BrowserApi) {
         for (const c of d.changed.slice(0, 100)) lines.push(`  ~ ${c.signature}  [${c.was || "-"}] → [${c.now || "-"}]`);
         if (d.changed.length > 100) lines.push(`  …(${d.changed.length - 100} more)`);
       }
-      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      return { content: [{ type: "text" as const, text: lines.join("\n") }], data: { diff: d } };
     }
 
     if (args.store_as) browser.storeSnapshot(args.store_as, effective);
@@ -143,6 +144,9 @@ export function makeSnapshotHandler(browser: BrowserApi) {
         : renderAxNode(effective);
 
     const stored = args.store_as ? ` [stored as "${args.store_as}"]` : "";
-    return { content: [{ type: "text" as const, text: text + (stored ? `\n\n${stored}` : "") }] };
+    return {
+      content: [{ type: "text" as const, text: text + (stored ? `\n\n${stored}` : "") }],
+      data: { snapshot: effective },
+    };
   };
 }

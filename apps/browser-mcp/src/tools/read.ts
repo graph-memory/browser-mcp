@@ -83,8 +83,10 @@ export function makeReadHandler(browser: BrowserApi) {
       body = htmlToMarkdown(html, page.url(), max, text, doCompact);
     }
 
+    const url = page.url();
     return {
-      content: [{ type: "text" as const, text: `URL: ${page.url()}\n\n${body}` }],
+      content: [{ type: "text" as const, text: `URL: ${url}\n\n${body}` }],
+      data: { url, mode, content: body },
     };
   };
 }

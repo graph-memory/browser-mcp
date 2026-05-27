@@ -11,6 +11,13 @@ export type ToolResult = {
     | { type: "text"; text: string }
     | { type: "image"; data: string; mimeType: string }
   >;
+  /**
+   * Structured payload for the REST surface. Handlers attach the object they
+   * already compute (before text formatting). The MCP transport ignores it; the
+   * REST router returns it as the response `data`. Optional — action-only tools
+   * may omit it and the REST layer falls back to `{ ok, message }`.
+   */
+  data?: unknown;
 };
 
 /**

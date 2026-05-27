@@ -118,6 +118,8 @@ describe("cookies — entries with no flags at all", () => {
     expect(t).toContain("plain (example.com/) = v");
     expect(t).toContain("[]"); // no flags
     expect(t).toContain("2030-01-02");
+    // structured channel: the raw cookie array, not the formatted text
+    expect((r as { data?: { cookies: unknown[] } }).data?.cookies).toHaveLength(1);
   });
 });
 
@@ -141,6 +143,8 @@ describe("network — entries with undefined status and missing duration", () =>
       const t = (r as { content: { text: string }[] }).content[0].text;
       expect(t).toContain("—"); // missing status/duration → dashes
       expect(t).toContain("GET");
+      // structured channel mirrors the ring entries verbatim
+      expect((r as { data?: unknown }).data).toEqual({ entries, total: 1 });
     });
   });
 });
@@ -161,6 +165,10 @@ describe("read — handler default mode falls through to markdown", () => {
     const r = await handler({ mode: "markdown" });
     const t = (r as { content: { text: string }[] }).content[0].text;
     expect(t).toContain("URL: ");
+    const d = (r as { data?: { url?: string; mode?: string; content?: string } }).data;
+    expect(d?.url).toBe("about:blank");
+    expect(d?.mode).toBe("markdown");
+    expect(typeof d?.content).toBe("string");
   });
 });
 
@@ -249,6 +257,8 @@ describe("open — messages for 2xx, 4xx, unknown status", () => {
     const handler = makeOpenHandler(mgr);
     const r = await handler({ url: "https://example.com/x" });
     expect((r as { content: { text: string }[] }).content[0].text).toContain("HTTP status unknown");
+    // structured channel exposes the TabInfo
+    expect((r as { data?: { tab_id?: string } }).data?.tab_id).toBe("tab1");
   });
 });
 

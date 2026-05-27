@@ -29,7 +29,10 @@ export function makeConsoleHandler(browser: BrowserApi) {
     }
 
     if (result.entries.length === 0) {
-      return { content: [{ type: "text" as const, text: `(no console entries match; ring has ${result.total} total)` }] };
+      return {
+        content: [{ type: "text" as const, text: `(no console entries match; ring has ${result.total} total)` }],
+        data: { entries: result.entries, total: result.total },
+      };
     }
 
     const lines: string[] = [`── ${result.entries.length} entries (of ${result.total} in ring) ──`];
@@ -38,6 +41,9 @@ export function makeConsoleHandler(browser: BrowserApi) {
       const loc = e.location ? `  (${e.location})` : "";
       lines.push(`${t}  ${e.level.toUpperCase().padEnd(9)} ${e.text}${loc}`);
     }
-    return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    return {
+      content: [{ type: "text" as const, text: lines.join("\n") }],
+      data: { entries: result.entries, total: result.total },
+    };
   };
 }

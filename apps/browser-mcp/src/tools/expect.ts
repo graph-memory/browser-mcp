@@ -70,6 +70,7 @@ export function makeExpectHandler(browser: BrowserApi) {
                 text: `PASS ${args.assertion}${res.detail ? ` — ${res.detail}` : ""}`,
               },
             ],
+            data: { ok: true, assertion: args.assertion, expected: args.expected, actual: res.actual },
           };
         }
         lastActual = res.actual;
@@ -86,7 +87,11 @@ export function makeExpectHandler(browser: BrowserApi) {
       (lastActual !== undefined ? ` actual=${JSON.stringify(lastActual)}` : "") +
       (lastErr ? `\n  ${lastErr}` : "") +
       `\n  (retried for ${timeout}ms)`;
-    return { isError: true, content: [{ type: "text" as const, text: body }] };
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: body }],
+      data: { ok: false, assertion: args.assertion, expected: args.expected, actual: lastActual },
+    };
 
     async function checkOnce(a: ExpectArgs): Promise<{ ok: boolean; actual?: string | number; detail?: string }> {
       switch (a.assertion) {

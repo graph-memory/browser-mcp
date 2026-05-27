@@ -60,7 +60,10 @@ export function makeSelectOptionHandler(browser: BrowserApi) {
     by: "value" | "label" | "index"; values: string[]; tab_id?: string;
   }) => {
     const selected = await browser.selectOption(a.target, a.target_type, a.by, a.values, a.tab_id, { role: a.role, exact: a.exact });
-    return { content: [{ type: "text" as const, text: `Selected by ${a.by} in (${a.target_type}) ${a.target}: ${selected.join(", ") || "(none)"}` }] };
+    return {
+      content: [{ type: "text" as const, text: `Selected by ${a.by} in (${a.target_type}) ${a.target}: ${selected.join(", ") || "(none)"}` }],
+      data: { selected, by: a.by },
+    };
   };
 }
 

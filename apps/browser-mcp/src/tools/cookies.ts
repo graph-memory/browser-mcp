@@ -42,7 +42,7 @@ export function makeCookiesHandler(browser: BrowserApi) {
     if (args.action === "get") {
       const all = await ctx.cookies(args.urls);
       if (all.length === 0) {
-        return { content: [{ type: "text" as const, text: "(no cookies)" }] };
+        return { content: [{ type: "text" as const, text: "(no cookies)" }], data: { cookies: [] } };
       }
       const body = all
         .map((c) => {
@@ -57,7 +57,7 @@ export function makeCookiesHandler(browser: BrowserApi) {
           return `${c.name} (${c.domain}${c.path}) = ${c.value}  [${flags}] expires=${expires}`;
         })
         .join("\n");
-      return { content: [{ type: "text" as const, text: body }] };
+      return { content: [{ type: "text" as const, text: body }], data: { cookies: all } };
     }
 
     if (args.action === "set") {
@@ -72,11 +72,12 @@ export function makeCookiesHandler(browser: BrowserApi) {
             text: `Set ${args.cookies.length} cookie${args.cookies.length === 1 ? "" : "s"}`,
           },
         ],
+        data: { ok: true, count: args.cookies.length },
       };
     }
 
     // clear
     await ctx.clearCookies();
-    return { content: [{ type: "text" as const, text: "Cleared all cookies" }] };
+    return { content: [{ type: "text" as const, text: "Cleared all cookies" }], data: { ok: true } };
   };
 }

@@ -36,6 +36,9 @@ export function makeNetworkBodyHandler(browser: BrowserApi) {
     }
 
     const header = `${e.method} ${e.url}\nstatus: ${e.status ?? "—"}  content-type: ${e.contentType}  (match ${matches.length - args.index}/${matches.length})\n\n`;
-    return { content: [{ type: "text" as const, text: truncate(header + e.body, config.maxChars) }] };
+    return {
+      content: [{ type: "text" as const, text: truncate(header + e.body, config.maxChars) }],
+      data: { ...e, match_index: matches.length - args.index, match_count: matches.length },
+    };
   };
 }

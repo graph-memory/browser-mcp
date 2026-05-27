@@ -9,7 +9,7 @@ export function makeTabsListHandler(browser: BrowserApi) {
     const text = tabs.length
       ? tabs.map((t) => `${t.tab_id === active ? "→ " : "  "}${t.tab_id}  ${t.title}  ${t.url}`).join("\n")
       : "(no tabs open)";
-    return { content: [{ type: "text" as const, text }] };
+    return { content: [{ type: "text" as const, text }], data: { tabs, active } };
   };
 }
 
@@ -19,7 +19,7 @@ export const tabSwitchSchema = {
 export function makeTabSwitchHandler(browser: BrowserApi) {
   return async ({ tab_id }: { tab_id: string }) => {
     browser.switchTab(tab_id);
-    return { content: [{ type: "text" as const, text: `Switched to ${tab_id}` }] };
+    return { content: [{ type: "text" as const, text: `Switched to ${tab_id}` }], data: { tab_id } };
   };
 }
 
@@ -29,6 +29,6 @@ export const tabCloseSchema = {
 export function makeTabCloseHandler(browser: BrowserApi) {
   return async ({ tab_id }: { tab_id: string }) => {
     await browser.closeTab(tab_id);
-    return { content: [{ type: "text" as const, text: `Closed ${tab_id}` }] };
+    return { content: [{ type: "text" as const, text: `Closed ${tab_id}` }], data: { tab_id, closed: true } };
   };
 }

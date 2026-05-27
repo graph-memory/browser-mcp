@@ -141,6 +141,7 @@ export function makeScrollHandler(browser: BrowserApi) {
           text: `Scrolled ${direction} — position: ${pos.scrollY}/${pos.scrollHeight}px (${pct}%)${note}`,
         },
       ],
+      data: { ...pos, percent: pct, fits },
     };
   };
 }
@@ -154,7 +155,7 @@ export function makeBackHandler(browser: BrowserApi) {
     const text = info.no_history
       ? `Already at earliest history entry — ${info.url}`
       : `Back → ${info.url}`;
-    return { content: [{ type: "text" as const, text }] };
+    return { content: [{ type: "text" as const, text }], data: info };
   };
 }
 
@@ -167,7 +168,7 @@ export function makeForwardHandler(browser: BrowserApi) {
     const text = info.no_history
       ? `Already at latest history entry — ${info.url}`
       : `Forward → ${info.url}`;
-    return { content: [{ type: "text" as const, text }] };
+    return { content: [{ type: "text" as const, text }], data: info };
   };
 }
 
@@ -177,7 +178,7 @@ export const reloadSchema = {
 export function makeReloadHandler(browser: BrowserApi) {
   return async ({ tab_id }: { tab_id?: string }) => {
     const info = await browser.reload(tab_id);
-    return { content: [{ type: "text" as const, text: `Reloaded → ${info.url}` }] };
+    return { content: [{ type: "text" as const, text: `Reloaded → ${info.url}` }], data: info };
   };
 }
 
@@ -206,12 +207,12 @@ export function makeFindHandler(browser: BrowserApi) {
   }) => {
     const hits = await browser.find(query, limit, tab_id);
     if (!hits.length) {
-      return { content: [{ type: "text" as const, text: `No matches for "${query}"` }] };
+      return { content: [{ type: "text" as const, text: `No matches for "${query}"` }], data: { query, hits: [] } };
     }
     const text = hits
       .map((h, i) => `${i + 1}. [${h.tag}] ${h.snippet}\n   selector: ${h.selector}`)
       .join("\n");
-    return { content: [{ type: "text" as const, text }] };
+    return { content: [{ type: "text" as const, text }], data: { query, hits } };
   };
 }
 
@@ -285,6 +286,6 @@ export function makeEvaluateHandler(browser: BrowserApi) {
     // Cap output — otherwise a page returning a 50M-item array buffers the
     // whole thing in the supervisor before we can respond. Same ceiling as
     // browser_read (BROWSER_MCP_MAX_CHARS).
-    return { content: [{ type: "text" as const, text: truncate(text, config.maxChars) }] };
+    return { content: [{ type: "text" as const, text: truncate(text, config.maxChars) }], data: { result } };
   };
 }
