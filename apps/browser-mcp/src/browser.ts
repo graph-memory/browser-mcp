@@ -37,7 +37,7 @@ export type NetLogEntry = {
   failed?: string;
 };
 
-const NET_RING_CAP = 500;
+const NET_RING_CAP = config.netRingCap;
 
 export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug" | "pageerror";
 export type ConsoleLogEntry = {
@@ -48,7 +48,7 @@ export type ConsoleLogEntry = {
   location?: string;
 };
 
-const CONSOLE_RING_CAP = 500;
+const CONSOLE_RING_CAP = config.consoleRingCap;
 
 export type NetBodyEntry = {
   ts: number;
@@ -62,8 +62,8 @@ export type NetBodyEntry = {
 
 // Response bodies are heavy, so we keep only a small ring of recent texty
 // responses, each capped in size. Binary / oversized responses are skipped.
-const BODY_RING_CAP = 50;
-const BODY_MAX_BYTES = 256 * 1024;
+const BODY_RING_CAP = config.bodyRingCap;
+const BODY_MAX_BYTES = config.bodyMaxBytes;
 
 export class BrowserManager {
   private context: BrowserContext | null = null;
@@ -431,7 +431,7 @@ export class BrowserManager {
     const page = await ctx.newPage();
     const id = this.pageToId.get(page) ?? this.registerPage(page);
     this.currentTabId = id;
-    const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: config.navTimeoutMs });
     await this.settle(page);
     return { tab_id: id, title: await page.title(), url: page.url(), status: resp?.status() };
   }
@@ -439,7 +439,7 @@ export class BrowserManager {
   async navigate(url: string, tabId?: string): Promise<TabInfo> {
     if (!tabId) return this.openTab(url);
     const page = this.getPage(tabId);
-    const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: config.navTimeoutMs });
     await this.settle(page);
     this.currentTabId = tabId;
     return { tab_id: tabId, title: await page.title(), url: page.url(), status: resp?.status() };
@@ -522,7 +522,7 @@ export class BrowserManager {
   async click(target: string, targetType: LocatorType, tabId?: string, opts?: LocatorOpts): Promise<void> {
     const page = this.getPage(tabId);
     const loc = resolveLocator(page, target, targetType, opts).first();
-    await loc.click({ timeout: 10_000 });
+    await loc.click({ timeout: config.actionTimeoutMs });
     await this.settle(page);
   }
 
@@ -548,7 +548,7 @@ export class BrowserManager {
         el.dispatchEvent(new Event("input", { bubbles: true }));
       }, text);
     } else {
-      await loc.fill(text, { timeout: 10_000 });
+      await loc.fill(text, { timeout: config.actionTimeoutMs });
     }
     if (submit) {
       await loc.press("Enter");
@@ -560,7 +560,7 @@ export class BrowserManager {
   async press(key: string, target: string | undefined, targetType: LocatorType, tabId?: string, opts?: LocatorOpts): Promise<void> {
     const page = this.getPage(tabId);
     if (target) {
-      await resolveLocator(page, target, targetType, opts).first().press(key, { timeout: 10_000 });
+      await resolveLocator(page, target, targetType, opts).first().press(key, { timeout: config.actionTimeoutMs });
     } else {
       await page.keyboard.press(key);
     }
@@ -569,7 +569,7 @@ export class BrowserManager {
 
   async hover(target: string, targetType: LocatorType, tabId?: string, opts?: LocatorOpts): Promise<void> {
     const page = this.getPage(tabId);
-    await resolveLocator(page, target, targetType, opts).first().hover({ timeout: 10_000 });
+    await resolveLocator(page, target, targetType, opts).first().hover({ timeout: config.actionTimeoutMs });
   }
 
   /** Select option(s) in a native <select> by value/label/index. Returns the selected values. */
@@ -587,7 +587,7 @@ export class BrowserManager {
       by === "label" ? values.map((v) => ({ label: v }))
       : by === "index" ? values.map((v) => ({ index: Number(v) }))
       : values.map((v) => ({ value: v }));
-    const selected = await loc.selectOption(arg, { timeout: 10_000 });
+    const selected = await loc.selectOption(arg, { timeout: config.actionTimeoutMs });
     await this.settle(page);
     return selected;
   }
@@ -596,8 +596,8 @@ export class BrowserManager {
   async setChecked(target: string, targetType: LocatorType, checked: boolean, tabId?: string, opts?: LocatorOpts): Promise<void> {
     const page = this.getPage(tabId);
     const loc = resolveLocator(page, target, targetType, opts).first();
-    if (checked) await loc.check({ timeout: 10_000 });
-    else await loc.uncheck({ timeout: 10_000 });
+    if (checked) await loc.check({ timeout: config.actionTimeoutMs });
+    else await loc.uncheck({ timeout: config.actionTimeoutMs });
     await this.settle(page);
   }
 
@@ -613,7 +613,7 @@ export class BrowserManager {
     const page = this.getPage(tabId);
     const src = resolveLocator(page, source, sourceType, sourceOpts).first();
     const dst = resolveLocator(page, target, targetType, targetOpts).first();
-    await src.dragTo(dst, { timeout: 10_000 });
+    await src.dragTo(dst, { timeout: config.actionTimeoutMs });
     await this.settle(page);
   }
 
@@ -772,7 +772,7 @@ export class BrowserManager {
     const page = existing ?? (await ctx.newPage());
     const id = this.pageToId.get(page) ?? this.registerPage(page);
     this.currentTabId = id;
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: config.navTimeoutMs });
     return { tab_id: id, title: await page.title(), url: page.url() };
   }
 

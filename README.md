@@ -779,6 +779,8 @@ All flags are optional — loopback-only defaults work out of the box. Priority:
 | `--max-html-bytes` | `BROWSER_MCP_MAX_HTML_BYTES` | `10000000` | HTML cap before JSDOM parse (OOM guard) |
 | `--settle-ms` | `BROWSER_MCP_SETTLE_MS` | `500` | quiet-window duration |
 | `--settle-timeout-ms` | `BROWSER_MCP_SETTLE_TIMEOUT_MS` | `3000` | hard settle timeout after nav/click |
+| `--action-timeout-ms` | `BROWSER_MCP_ACTION_TIMEOUT_MS` | `10000` | per-action timeout: click/type/press/hover/select/check/drag |
+| `--nav-timeout-ms` | `BROWSER_MCP_NAV_TIMEOUT_MS` | `30000` | per-navigation timeout: open/navigate/open_visible |
 | `--profile-dir` | `BROWSER_MCP_PROFILE_DIR` | `~/.browser-mcp/profiles` | profile base dir |
 
 ### Safety opt-ins (env only — sharp-edge escape hatches)
@@ -792,6 +794,20 @@ All flags are optional — loopback-only defaults work out of the box. Priority:
 | `BROWSER_MCP_SANDBOX_DIR` | `~/.browser-mcp` | Base dir for download / upload sandboxes |
 | `BROWSER_MCP_READ_BODY_TIMEOUT_MS` | `10000` | Wall-clock cap on HTTP body read (slow-loris) |
 | `BROWSER_MCP_NO_NETWORK_BODY` | `0` | `1` disables passive response-body capture for `browser_network_body` |
+| `BROWSER_MCP_MAX_REQUEST_BYTES` | `1048576` | Max accepted HTTP request body (1 MiB). **Raising it weakens a DoS guard** — only bump if a legitimate tool call needs a larger payload |
+
+### Resource tuning (env only)
+
+In-memory ring capacities, per profile. Bigger = deeper history at higher RAM
+cost. The `browser_network_log` / `browser_console_log` `limit` argument is
+capped at the matching ring size (you can't read back more than the ring holds).
+
+| Env | Default | Effect |
+|---|---|---|
+| `BROWSER_MCP_NET_RING` | `500` | Network-log ring capacity (`browser_network_log`) |
+| `BROWSER_MCP_CONSOLE_RING` | `500` | Console-log ring capacity (`browser_console_log`) |
+| `BROWSER_MCP_BODY_RING` | `50` | Captured-response-body ring capacity (`browser_network_body`) |
+| `BROWSER_MCP_BODY_MAX_BYTES` | `262144` | Max size per captured response body (256 KiB); larger bodies are skipped |
 
 `browser-mcp --help` prints the CLI list.
 

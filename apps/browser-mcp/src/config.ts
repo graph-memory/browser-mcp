@@ -22,6 +22,8 @@ const program = new Command()
   .option("--tab-ttl <seconds>", "Auto-close inactive tabs after N seconds")
   .option("--settle-ms <ms>", "Quiet-window duration for request-counting settle")
   .option("--settle-timeout-ms <ms>", "Hard timeout for settle after navigation/click")
+  .option("--action-timeout-ms <ms>", "Timeout for element actions: click/type/press/hover/select/check/drag (default 10000)")
+  .option("--nav-timeout-ms <ms>", "Timeout for page navigation: open/navigate/open_visible (default 30000)")
   .option("--session-ttl <seconds>", "Session TTL in seconds")
   .option("--profile-dir <path>", "Base directory for browser profiles")
   .option("--viewport <WxH>", "Default viewport size, e.g. 1920x1080 (default: 1280x900)")
@@ -106,6 +108,10 @@ export const config = {
   tabTtlSec: num(opts.tabTtl, process.env.BROWSER_MCP_TAB_TTL_SEC, 600),
   settleMs: num(opts.settleMs, process.env.BROWSER_MCP_SETTLE_MS, 500),
   settleTimeoutMs: num(opts.settleTimeoutMs, process.env.BROWSER_MCP_SETTLE_TIMEOUT_MS, 3_000),
+  // Playwright per-action timeout (click/type/press/hover/select/check/drag) and
+  // per-navigation timeout (page.goto). Bump these on slow sites / CI.
+  actionTimeoutMs: num(opts.actionTimeoutMs, process.env.BROWSER_MCP_ACTION_TIMEOUT_MS, 10_000),
+  navTimeoutMs: num(opts.navTimeoutMs, process.env.BROWSER_MCP_NAV_TIMEOUT_MS, 30_000),
   sessionTtlSec: num(opts.sessionTtl, process.env.BROWSER_MCP_SESSION_TTL_SEC, 1800),
 
   profileDir: str(opts.profileDir, process.env.BROWSER_MCP_PROFILE_DIR, ""),
@@ -125,4 +131,16 @@ export const config = {
   // so don't enable it by default.
   corsOrigin: str(opts.corsOrigin, process.env.BROWSER_MCP_CORS_ORIGIN, ""),
   maxSessions: num(opts.maxSessions, process.env.BROWSER_MCP_MAX_SESSIONS, 50),
+
+  // In-memory ring capacities (per profile). Advanced memory/history tuning —
+  // env-only, no CLI flag. Bigger = deeper history at higher RAM cost. The
+  // network_log / console_log `limit` schema caps are derived from these.
+  netRingCap: num(undefined, process.env.BROWSER_MCP_NET_RING, 500),
+  consoleRingCap: num(undefined, process.env.BROWSER_MCP_CONSOLE_RING, 500),
+  bodyRingCap: num(undefined, process.env.BROWSER_MCP_BODY_RING, 50),
+  bodyMaxBytes: num(undefined, process.env.BROWSER_MCP_BODY_MAX_BYTES, 256 * 1024),
+
+  // Max accepted HTTP request body (DoS guard). Env-only — raising it WEAKENS
+  // the guard, so it stays off the CLI surface. Pairs with READ_BODY_TIMEOUT_MS.
+  maxRequestBytes: num(undefined, process.env.BROWSER_MCP_MAX_REQUEST_BYTES, 1_048_576),
 } as const;
