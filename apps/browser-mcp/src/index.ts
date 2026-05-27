@@ -23,6 +23,8 @@ httpServer.listen(config.port, config.host, () => {
   console.error(`  health       → http://${config.host}:${config.port}/health`);
   console.error(`  /mcp         → default profile`);
   console.error(`  /mcp/<name>  → named profile (e.g. /mcp/test1)`);
+  console.error(`  REST (json)  → POST http://${config.host}:${config.port}/api/v1/tools/<tool>?profile=<name>`);
+  console.error(`  REST tools   → GET  http://${config.host}:${config.port}/api/v1/tools`);
   console.error(`  auth         → ${config.apiKey ? "Bearer token required" : "DISABLED (loopback only)"}`);
   console.error(`  cors_origin  → ${config.corsOrigin}`);
   console.error(`  max_sessions → ${config.maxSessions}`);

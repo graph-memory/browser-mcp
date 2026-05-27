@@ -8,6 +8,7 @@ import { BrowserManager, validateProfileName, type BrowserApi } from "./browser.
 import { BrowserSession } from "./browser-session.js";
 import { withLog, type ToolResult } from "./tool-runtime.js";
 import { TOOLS } from "./registry.js";
+import { runTool, toolsDiscovery, parseApiRoute } from "./rest.js";
 import { logInfo, logError } from "./log.js";
 
 // redactToolArgs moved to tool-runtime.ts; re-exported here for the existing
@@ -83,7 +84,7 @@ export function insecureStartupProblem(): string | null {
   if (config.allowInsecure) return null;
   return (
     `host is bound to '${config.host}' (not loopback) and no API key is set.\n` +
-    `  /mcp drives a real browser — exposing it without auth is an RCE-by-proxy risk.\n` +
+    `  /mcp and /api drive a real browser — exposing them without auth is an RCE-by-proxy risk.\n` +
     "  Fix one of:\n" +
     "    1. set BROWSER_MCP_API_KEY to a random string (recommended)\n" +
     "    2. bind to 127.0.0.1 (BROWSER_MCP_HOST=127.0.0.1)\n" +
@@ -260,6 +261,74 @@ export function createApp(opts: AppOptions = {}): {
     await session.transport.handleRequest(req, res, body);
   }
 
+  /**
+   * Stateless REST surface (/api/v1). The client holds no session; the server
+   * keeps one "profile holder" (an in-memory RestSession) per profile that
+   * caches the shared browser + per-tool handlers across requests, reaped by
+   * the same idle-TTL machinery as MCP sessions.
+   */
+  async function handleRest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const route = parseApiRoute(req.method ?? "GET", url.pathname);
+
+    if (route === null) { writeError(res, 404, "Not found", true); return; }
+    if (route.kind === "method_not_allowed") { writeError(res, 405, "Method not allowed", true); return; }
+    if (route.kind === "tools") {
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(toolsDiscovery()));
+      return;
+    }
+    if (route.kind === "release") {
+      try { validateProfileName(route.profile); }
+      catch (e) { writeError(res, 400, (e as Error).message, true); return; }
+      const key = `rest:${route.profile}`;
+      const existed = sessions.has(key);
+      if (existed) await cleanupSession(key); // drops the holder; shuts the browser iff no MCP session holds it
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ ok: true, released: existed }));
+      return;
+    }
+
+    // route.kind === "tool": resolve the profile (default "default").
+    const profileRaw = url.searchParams.get("profile") ?? "";
+    let profileName = "default";
+    if (profileRaw) {
+      try { validateProfileName(profileRaw); profileName = profileRaw; }
+      catch (e) { writeError(res, 400, (e as Error).message, true); return; }
+    }
+
+    const body = await readJsonBody(req);
+
+    // Get-or-create the per-profile holder SYNCHRONOUSLY — no await between the
+    // get and the set — so two concurrent first-touch calls to the same profile
+    // can't each spin up a BrowserManager on one profile dir (SingletonLock race).
+    const key = `rest:${profileName}`;
+    let holder = sessions.get(key);
+    if (holder && holder.kind !== "rest") holder = undefined;
+    if (!holder) {
+      if (sessions.size >= config.maxSessions) {
+        writeError(res, 503, `session cap reached (${config.maxSessions})`, true);
+        return;
+      }
+      const browser = getBrowserForProfile(profileName);
+      const view = new BrowserSession(browser);
+      const handlers: RestSession["handlers"] = new Map(
+        TOOLS.map((t) => [t.name, withLog(t.name, t.makeHandler(view))] as const),
+      );
+      holder = { kind: "rest", browser, view, handlers, profileName, lastUsed: Date.now() };
+      sessions.set(key, holder);
+      logInfo(`New REST holder for profile "${profileName}" (dir: ${browser.profileDir})`);
+    }
+    holder.lastUsed = Date.now();
+
+    const { status, body: envelope } = await runTool(route.name, body, holder.handlers);
+    res.statusCode = status;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify(envelope));
+  }
+
   function writeJsonError(res: ServerResponse, status: number, message: string) {
     res.statusCode = status;
     res.setHeader("content-type", "application/json");
@@ -270,14 +339,24 @@ export function createApp(opts: AppOptions = {}): {
     }));
   }
 
-  function checkAuth(req: IncomingMessage, res: ServerResponse): boolean {
+  /**
+   * Write a transport-layer error. REST (/api) gets the plain
+   * `{ ok:false, error:{ message } }` envelope; MCP (/mcp) gets the JSON-RPC
+   * error shape. Keeps both surfaces' error bodies idiomatic.
+   */
+  function writeError(res: ServerResponse, status: number, message: string, isApi: boolean) {
+    if (!isApi) { writeJsonError(res, status, message); return; }
+    res.statusCode = status;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ ok: false, error: { message } }));
+  }
+
+  /** Bearer-token check. True when auth is disabled or the token matches (constant-time). */
+  function authOk(req: IncomingMessage): boolean {
     if (!config.apiKey) return true;
     const auth = String(req.headers["authorization"] ?? "");
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (token && safeStringEq(token, config.apiKey)) return true;
-    logInfo(`auth failed from ${req.socket.remoteAddress ?? "?"}`);
-    writeJsonError(res, 401, "Unauthorized — invalid or missing API key");
-    return false;
+    return Boolean(token && safeStringEq(token, config.apiKey));
   }
 
   function checkOrigin(req: IncomingMessage): { ok: true } | { ok: false; reason: string } {
@@ -333,26 +412,34 @@ export function createApp(opts: AppOptions = {}): {
       handleHealth(req, res);
       return;
     }
-    if (!req.url?.startsWith("/mcp")) {
+    const isApi = req.url?.startsWith("/api/") ?? false;
+    const isMcp = req.url?.startsWith("/mcp") ?? false;
+    if (!isApi && !isMcp) {
       res.statusCode = 404;
       res.setHeader("content-type", "text/plain");
       res.end("Not found\n");
       return;
     }
 
+    // Shared guard gate — /mcp and /api both pass origin → content-type → auth.
     const origin = checkOrigin(req);
-    if (!origin.ok) { writeJsonError(res, 403, origin.reason); return; }
+    if (!origin.ok) { writeError(res, 403, origin.reason, isApi); return; }
 
     const ct = checkContentType(req);
-    if (!ct.ok) { writeJsonError(res, 415, ct.reason); return; }
+    if (!ct.ok) { writeError(res, 415, ct.reason, isApi); return; }
 
-    if (!checkAuth(req, res)) return;
+    if (!authOk(req)) {
+      logInfo(`auth failed from ${req.socket.remoteAddress ?? "?"}`);
+      writeError(res, 401, "Unauthorized — invalid or missing API key", isApi);
+      return;
+    }
 
-    handleMcp(req, res).catch((err) => {
-      logError("MCP handler", err);
+    const handle = isApi ? handleRest : handleMcp;
+    handle(req, res).catch((err) => {
+      logError(isApi ? "REST handler" : "MCP handler", err);
       if (!res.headersSent) {
         const status = (err as { statusCode?: number }).statusCode ?? 500;
-        writeJsonError(res, status, String((err as Error)?.message ?? err));
+        writeError(res, status, String((err as Error)?.message ?? err), isApi);
       }
     });
   });
