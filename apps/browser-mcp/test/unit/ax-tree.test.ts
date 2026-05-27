@@ -66,6 +66,27 @@ describe("renderAxNode", () => {
     const heading = lines.find((l) => l.includes("Hello"));
     expect(heading).toMatch(/^  - heading "Hello"/);
   });
+
+  it("renders the less-common attribute annotations", () => {
+    // pressed/selected/required/readonly/expanded/invalid are otherwise never
+    // hit by the integration fixtures, so render them explicitly here.
+    const out = renderAxNode({
+      role: "button",
+      name: "Toggle",
+      pressed: true,
+      selected: true,
+      required: true,
+      readonly: true,
+      expanded: false,
+      invalid: "spelling",
+    });
+    expect(out).toContain("pressed=true");
+    expect(out).toContain("selected");
+    expect(out).toContain("required");
+    expect(out).toContain("readonly");
+    expect(out).toContain("expanded=false");
+    expect(out).toContain("invalid=spelling");
+  });
 });
 
 describe("filterCompact", () => {

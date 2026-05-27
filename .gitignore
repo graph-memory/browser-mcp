@@ -1,4 +1,11 @@
 node_modules/
 dist/
-*.tsbuildinfo
+apps/*/dist/
 coverage/
+apps/*/coverage/
+*.tsbuildinfo
+
+# README/LICENSE are copied into the package on `prepack` (single source of
+# truth lives at the repo root). Ignore the generated copies.
+apps/browser-mcp/README.md
+apps/browser-mcp/LICENSE

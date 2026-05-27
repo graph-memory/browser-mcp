@@ -39,5 +39,5 @@ jobs:
         if: always()
         with:
           name: coverage
-          path: coverage/
+          path: apps/browser-mcp/coverage/
           retention-days: 14

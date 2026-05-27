@@ -22,6 +22,6 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm test
-      - run: npm publish --provenance --access public
+      - run: npm publish -w @graphmemory/browser-mcp --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

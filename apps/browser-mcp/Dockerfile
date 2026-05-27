@@ -1,8 +1,12 @@
+# Build context is the WORKSPACE ROOT, not this directory — npm workspaces keep
+# the single package-lock.json at the root. Build with:
+#   docker build -f apps/browser-mcp/Dockerfile .
 FROM node:24-slim AS build
 
 WORKDIR /app
-COPY package.json package-lock.json tsconfig.json ./
-COPY src/ src/
+COPY package.json package-lock.json ./
+COPY apps/browser-mcp/package.json apps/browser-mcp/tsconfig.json apps/browser-mcp/
+COPY apps/browser-mcp/src/ apps/browser-mcp/src/
 RUN npm ci --ignore-scripts && npm run build
 
 FROM node:24-slim
@@ -26,13 +30,14 @@ RUN groupadd -r browser && useradd -r -g browser -m -d /home/browser browser
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+COPY apps/browser-mcp/package.json apps/browser-mcp/
 RUN npm ci --ignore-scripts && chown -R browser:browser /app
 
 USER browser
 
 RUN npx playwright install chromium
 
-COPY --from=build --chown=browser:browser /app/dist/ dist/
+COPY --from=build --chown=browser:browser /app/apps/browser-mcp/dist/ apps/browser-mcp/dist/
 
 ENV BROWSER_MCP_HOST=0.0.0.0
 ENV BROWSER_MCP_CHANNEL=chromium
@@ -45,4 +50,4 @@ EXPOSE 7777
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:7777/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
-ENTRYPOINT ["/usr/bin/tini", "--", "node", "dist/index.js"]
+ENTRYPOINT ["/usr/bin/tini", "--", "node", "apps/browser-mcp/dist/index.js"]

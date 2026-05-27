@@ -1,6 +1,9 @@
 services:
   browser-mcp:
-    build: .
+    # Build context is the workspace root (single package-lock.json lives there).
+    build:
+      context: ../..
+      dockerfile: apps/browser-mcp/Dockerfile
     # tini is baked into the image, but compose's init adds no overhead and
     # provides belt-and-suspenders orphan cleanup.
     init: true

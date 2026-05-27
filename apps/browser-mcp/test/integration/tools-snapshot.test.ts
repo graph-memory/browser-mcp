@@ -105,6 +105,17 @@ describe.skipIf(SKIP)("tools/snapshot — compact / store_as / diff_against", ()
     expect(textOf(r)).toMatch(/hidden child/);
   }, 60_000);
 
+  it("max_depth > 0 recurses into children before truncating", async () => {
+    // max_depth: 0 only exercises the truncation branch; a positive depth drives
+    // the recursive descent in truncateAx, keeping shallow nodes as real lines.
+    await open({ url: fixtureUrl("dashboard.html") });
+    const r = await snap({ interesting_only: true, format: "yaml", max_depth: 3 });
+    const lines = textOf(r).split("\n");
+    // Root plus at least one indented (recursed) child line.
+    expect(lines[0]).toMatch(/^- (Root)?WebArea/);
+    expect(lines.some((l) => /^\s+- /.test(l))).toBe(true);
+  }, 60_000);
+
   it("returns 'empty accessibility tree' only when CDP returns nothing", async () => {
     // about:blank → AX tree is tiny but not null. Synth a manager stub to
     // exercise the null branch of the handler.

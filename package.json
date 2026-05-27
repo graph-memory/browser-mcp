@@ -1,68 +1,23 @@
 {
-  "name": "@graphmemory/browser-mcp",
-  "version": "0.2.0",
-  "description": "MCP server that gives AI agents a full browser — open pages, read content, click, type, scroll, take screenshots, manage tabs, and emulate devices.",
+  "name": "browser-mcp-workspace",
+  "private": true,
   "type": "module",
-  "bin": {
-    "browser-mcp": "dist/index.js"
-  },
-  "main": "dist/index.js",
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
+  "workspaces": [
+    "apps/*",
+    "packages/*"
   ],
-  "scripts": {
-    "dev": "tsx src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "test:integration": "vitest run --dir test/integration",
-    "prepublishOnly": "npm run build",
-    "postinstall": "npx playwright install chromium"
-  },
   "engines": {
     "node": ">=22.0.0"
   },
-  "keywords": [
-    "mcp",
-    "browser",
-    "playwright",
-    "automation",
-    "scraping",
-    "ai",
-    "claude",
-    "agent",
-    "headless",
-    "model-context-protocol"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/graph-memory/browser-mcp.git"
-  },
-  "author": "graph-memory",
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "@mozilla/readability": "^0.6.0",
-    "commander": "^14.0.3",
-    "jsdom": "^29.0.2",
-    "nanoid": "^5.1.7",
-    "playwright": "^1.59.1",
-    "playwright-extra": "^4.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "turndown": "^7.2.4",
-    "zod": "^4.3.6"
-  },
-  "license": "Elastic-2.0",
-  "devDependencies": {
-    "@types/jsdom": "^28.0.1",
-    "@types/node": "^25.6.0",
-    "@types/turndown": "^5.0.6",
-    "@vitest/coverage-v8": "^4.1.5",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.5"
+  "scripts": {
+    "//postinstall": "npm does not run a workspace package's postinstall on root install (only `prepare`), so mirror the app's Chromium install here for `git clone && npm install`. CI/Docker use `npm ci --ignore-scripts` and skip this.",
+    "postinstall": "npx playwright install chromium",
+    "dev": "npm run dev -w @graphmemory/browser-mcp",
+    "build": "npm run build -w @graphmemory/browser-mcp",
+    "start": "npm run start -w @graphmemory/browser-mcp",
+    "test": "npm run test -w @graphmemory/browser-mcp",
+    "test:watch": "npm run test:watch -w @graphmemory/browser-mcp",
+    "test:coverage": "npm run test:coverage -w @graphmemory/browser-mcp",
+    "test:integration": "npm run test:integration -w @graphmemory/browser-mcp"
   }
 }

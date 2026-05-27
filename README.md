@@ -215,7 +215,7 @@ browser_cookies       { action: "get", urls: ["https://example.com/"] }
   Hard cap on concurrent sessions (`max_sessions`, default 50).
 - **Multi-arch Docker image.** linux/amd64 + linux/arm64, non-root `browser`
   user, `tini` as PID 1 for zombie reaping, healthcheck wired to `/health`.
-- **Full test suite.** 304 tests (unit + integration against a real headless
+- **Full test suite.** 364 tests (unit + integration against a real headless
   Chromium) covering every tool handler, the HTTP server (auth/CSRF/session
   lifecycle), and the AX-tree pipeline. See [Testing](#testing).
 
@@ -921,27 +921,29 @@ URLs visited, cookies, or any page content.
 ## Testing
 
 ```bash
-npm test                  # run 304 tests once (vitest)
+npm test                  # run 364 tests once (vitest)
 npm run test:watch        # watch mode
 npm run test:coverage     # run + coverage report under coverage/
 npm run test:integration  # Playwright-backed tests only
 ```
 
-The suite is split across 26 files:
+The suite is split across 32 files:
 
-- **Unit** (11 files): pure-logic tests for `render.ts` (compact helpers),
+- **Unit** (15 files): pure-logic tests for `render.ts` (compact helpers),
   AX-tree manipulation (`cdpAxToTree` with synthetic CDP payloads,
   `filterCompact`, `diffSnapshots`, `collapseRedundantText`, `renderAxNode`),
-  `config.ts` helpers, `log.ts`, `lib/auth.ts`, netlog ring buffer,
-  `resolveLocator` routing, `insecureStartupProblem` gate, and mock-driven
-  tool handlers for edge branches (snapshot diff overflow, cookies no-flags,
-  PDF headless error, download failure, permissions without http origin).
-- **Integration** (15 files): drive a real headless Chromium via
+  `config.ts` helpers, `log.ts`, `lib/auth.ts`, `lib/url-safety.ts`,
+  `lib/path-sandbox.ts`, log redaction, profile-name validation, netlog ring
+  buffer, `resolveLocator` routing, `insecureStartupProblem` gate, and
+  mock-driven tool handlers for edge branches (snapshot diff overflow, cookies
+  no-flags, PDF headless error, download failure, permissions without http
+  origin).
+- **Integration** (17 files): drive a real headless Chromium via
   `BrowserManager` against local HTML fixtures. Covers every tool handler,
-  `BrowserManager`'s public surface, the HTTP server (CSRF / auth / session
-  lifecycle / MCP JSON-RPC / session cap), and the AX-tree pipeline end-to-end.
-  An in-process HTTP test server exercises 2xx/4xx/5xx branches and failed
-  network entries.
+  `BrowserManager`'s public surface (including proxy-configured context), the
+  HTTP server (CSRF / auth / session lifecycle / MCP JSON-RPC / session cap),
+  and the AX-tree pipeline end-to-end. An in-process HTTP test server
+  exercises 2xx/4xx/5xx branches and failed network entries.
 
 Integration tests use `BROWSER_MCP_HEADLESS=1` and a throwaway profile
 directory under `os.tmpdir()` — your local `~/.browser-mcp/profiles/` is not
@@ -961,17 +963,21 @@ CI runs the full suite on every push (Linux; `npx playwright install
 
 ## Docker
 
+The Dockerfile lives in `apps/browser-mcp/`, but the build context is the
+**workspace root** (the single `package-lock.json` lives there), so build from
+the repo root with `-f`:
+
 ```bash
-docker build -t browser-mcp .
+docker build -t browser-mcp -f apps/browser-mcp/Dockerfile .
 docker run --rm -p 7777:7777 -e BROWSER_MCP_API_KEY=$(openssl rand -hex 32) browser-mcp
 ```
 
-Or with compose:
+Or with compose (the compose file sets `context: ../..` for you):
 
 ```bash
-# one-time: create a .env file next to docker-compose.yml with a real key
-echo "BROWSER_MCP_API_KEY=$(openssl rand -hex 32)" > .env
-docker compose up
+# one-time: create a .env file next to the compose file with a real key
+echo "BROWSER_MCP_API_KEY=$(openssl rand -hex 32)" > apps/browser-mcp/.env
+docker compose -f apps/browser-mcp/docker-compose.yml up
 ```
 
 Pre-built images from GHCR:
@@ -1012,28 +1018,40 @@ it only in local/desktop setups.
 
 ## Development
 
+This repo is an **npm workspace**. The published app lives in
+`apps/browser-mcp/` (package `@graphmemory/browser-mcp`); `packages/` is
+reserved for future shared libraries. Root-level scripts delegate into the app
+with `-w`, so you run everything from the repo root:
+
 ```bash
 git clone https://github.com/graph-memory/browser-mcp.git
 cd browser-mcp
-npm install
+npm install         # installs all workspaces, hoists node_modules to root
 npm run dev         # run with tsx (no build step)
-npm run build       # compile TypeScript to dist/
-npm test            # full test suite (304 tests)
+npm run build       # compile TypeScript to apps/browser-mcp/dist/
+npm test            # full test suite (364 tests)
 npm run test:coverage
+```
+
+Layout:
+
+```
+apps/browser-mcp/   the MCP server (src/, test/, Dockerfile, bin)
+packages/           reserved for future shared libs
 ```
 
 ### Release process
 
 ```bash
-# bump version
-npm version patch   # or minor / major
+# bump the app's version (run inside the workspace)
+npm version patch -w @graphmemory/browser-mcp   # or minor / major
 
 # push with tag
 git push && git push --tags
 ```
 
-Triggers `publish.yml` (npm publish) and `docker.yml` (image build). Both
-run the full test suite first.
+Triggers `publish.yml` (npm publish of the workspace package) and `docker.yml`
+(image build). Both run the full test suite first.
 
 ---
 
