@@ -50,6 +50,21 @@ export type ConsoleLogEntry = {
 
 const CONSOLE_RING_CAP = 500;
 
+export type NetBodyEntry = {
+  ts: number;
+  tab_id: string;
+  url: string;
+  method: string;
+  status?: number;
+  contentType: string;
+  body: string;
+};
+
+// Response bodies are heavy, so we keep only a small ring of recent texty
+// responses, each capped in size. Binary / oversized responses are skipped.
+const BODY_RING_CAP = 50;
+const BODY_MAX_BYTES = 256 * 1024;
+
 export class BrowserManager {
   private context: BrowserContext | null = null;
   /**
@@ -68,6 +83,9 @@ export class BrowserManager {
   private consoleLog: ConsoleLogEntry[] = [];
   private consoleHead = 0;
   private consoleSize = 0;
+  private bodyLog: NetBodyEntry[] = [];
+  private bodyHead = 0;
+  private bodySize = 0;
   private reqStart = new WeakMap<object, { ts: number; tab_id: string }>();
   private snapshotStore = new Map<string, AxNode>();
   private currentTabId: string | null = null;
@@ -194,6 +212,26 @@ export class BrowserManager {
           ...(duration !== undefined && { duration_ms: duration }),
           ...(resp?.fromServiceWorker?.() && { from_cache: true }),
         });
+        // Capture small texty response bodies for browser_network_body.
+        if (resp) {
+          const ct = String(resp.headers()["content-type"] ?? "");
+          if (/json|text|xml|javascript|urlencoded/i.test(ct)) {
+            try {
+              const buf = await resp.body();
+              if (buf.length <= BODY_MAX_BYTES) {
+                this.pushBody({
+                  ts: meta?.ts ?? Date.now(),
+                  tab_id: id,
+                  url: req.url(),
+                  method: req.method(),
+                  status: resp.status(),
+                  contentType: ct,
+                  body: buf.toString("utf8"),
+                });
+              }
+            } catch { /* body unavailable */ }
+          }
+        }
       } catch { /* ignore */ }
     });
     page.on("requestfailed", (req) => {
@@ -288,6 +326,33 @@ export class BrowserManager {
     });
     const limit = opts.limit ?? 100;
     return { entries: filtered.slice(-limit), total: this.consoleSize };
+  }
+
+  private pushBody(e: NetBodyEntry): void {
+    if (this.bodySize < BODY_RING_CAP) {
+      this.bodyLog.push(e);
+      this.bodySize++;
+    } else {
+      this.bodyLog[this.bodyHead] = e;
+    }
+    this.bodyHead = (this.bodyHead + 1) % BODY_RING_CAP;
+  }
+
+  /** Captured response bodies (chronological), optionally filtered by URL/method. */
+  readNetworkBodies(opts: { urlRegex?: string; method?: string }): NetBodyEntry[] {
+    const ordered: NetBodyEntry[] = [];
+    if (this.bodySize < BODY_RING_CAP) {
+      ordered.push(...this.bodyLog);
+    } else {
+      for (let i = 0; i < BODY_RING_CAP; i++) ordered.push(this.bodyLog[(this.bodyHead + i) % BODY_RING_CAP]);
+    }
+    let re: RegExp | undefined;
+    if (opts.urlRegex) re = new RegExp(opts.urlRegex);
+    return ordered.filter((e) => {
+      if (opts.method && e.method.toUpperCase() !== opts.method.toUpperCase()) return false;
+      if (re && !re.test(e.url)) return false;
+      return true;
+    });
   }
 
   private pushNet(e: NetLogEntry): void {

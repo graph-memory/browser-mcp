@@ -37,6 +37,7 @@ import { downloadSchema, makeDownloadHandler } from "./tools/download.js";
 import { cookiesSchema, makeCookiesHandler } from "./tools/cookies.js";
 import { networkSchema, makeNetworkHandler } from "./tools/network.js";
 import { consoleSchema, makeConsoleHandler } from "./tools/console.js";
+import { networkBodySchema, makeNetworkBodyHandler } from "./tools/network-body.js";
 import { storageSchema, makeStorageHandler } from "./tools/storage.js";
 import { dialogSchema, makeDialogHandler } from "./tools/dialog.js";
 import { geolocationSchema, makeGeolocationHandler } from "./tools/geolocation.js";
@@ -337,6 +338,14 @@ export function buildServer(browser: BrowserManager): McpServer {
       "Filter by tab_id, level, or text_regex. Great for debugging SPA errors the UI swallowed.",
     inputSchema: consoleSchema,
   }, withLog("browser_console_log", makeConsoleHandler(browser)));
+
+  server.registerTool("browser_network_body", {
+    description:
+      "Return a captured HTTP response body (what an XHR/fetch returned). Only small texty/JSON " +
+      "responses are captured (last 50, size-capped). Filter by url_regex and method; index counts " +
+      "back from the most recent match (0 = latest).",
+    inputSchema: networkBodySchema,
+  }, withLog("browser_network_body", makeNetworkBodyHandler(browser)));
 
   server.registerTool("browser_storage", {
     description:
