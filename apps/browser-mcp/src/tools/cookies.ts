@@ -20,8 +20,11 @@ export const cookiesSchema = {
     httpOnly: z.boolean().optional(),
     secure: z.boolean().optional(),
     sameSite: z.enum(["Strict", "Lax", "None"]).optional(),
-  })).max(64).optional()
-    .describe("For 'set': cookies to add/update. Each needs either (domain+path) or a single url."),
+  }).refine(
+    (c) => Boolean(c.url) || Boolean(c.domain && c.path),
+    { message: "each cookie needs either `url`, or both `domain` and `path`" },
+  )).max(64).optional()
+    .describe("For 'set': cookies to add/update. Each needs either a single `url`, or both `domain` and `path`."),
 };
 
 export function makeCookiesHandler(browser: BrowserManager) {
