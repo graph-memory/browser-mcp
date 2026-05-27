@@ -757,6 +757,8 @@ All flags are optional — loopback-only defaults work out of the box. Priority:
 | `--max-html-bytes` | `BROWSER_MCP_MAX_HTML_BYTES` | `10000000` | HTML cap before JSDOM parse (OOM guard) |
 | `--settle-ms` | `BROWSER_MCP_SETTLE_MS` | `500` | quiet-window duration |
 | `--settle-timeout-ms` | `BROWSER_MCP_SETTLE_TIMEOUT_MS` | `3000` | hard settle timeout after nav/click |
+| `--action-timeout-ms` | `BROWSER_MCP_ACTION_TIMEOUT_MS` | `10000` | per-action timeout: click/type/press/hover/select/check/drag |
+| `--nav-timeout-ms` | `BROWSER_MCP_NAV_TIMEOUT_MS` | `30000` | per-navigation timeout: open/navigate/open_visible |
 | `--profile-dir` | `BROWSER_MCP_PROFILE_DIR` | `~/.browser-mcp/profiles` | profile base dir |
 
 ### Safety opt-ins (env only — sharp-edge escape hatches)
