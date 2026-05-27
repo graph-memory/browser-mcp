@@ -6,7 +6,7 @@ import { config } from "./config.js";
 import { safeStringEq, hostIsLoopback } from "./lib/auth.js";
 import { BrowserManager, validateProfileName, type BrowserApi } from "./browser.js";
 import { BrowserSession } from "./browser-session.js";
-import { withLog } from "./tool-runtime.js";
+import { withLog, type ToolResult } from "./tool-runtime.js";
 import { TOOLS } from "./registry.js";
 import { logInfo, logError } from "./log.js";
 
@@ -31,14 +31,30 @@ export function buildServer(browser: BrowserApi): McpServer {
 
 // --- Session & profile management ---
 
-type Session = {
-  server: McpServer;
-  transport: StreamableHTTPServerTransport;
+/** Fields common to every live session, regardless of transport. */
+type BaseSession = {
   browser: BrowserManager;          // shared per-profile manager (lifecycle)
   view: BrowserSession;             // per-session view (own active tab + snapshots)
   profileName: string;
   lastUsed: number;
 };
+/** An MCP session: owns an McpServer + StreamableHTTP transport to close. */
+type McpSession = BaseSession & {
+  kind: "mcp";
+  server: McpServer;
+  transport: StreamableHTTPServerTransport;
+};
+/**
+ * A REST "profile holder": an in-memory entry (not a connection) that keeps the
+ * shared browser alive for stateless REST callers and caches the per-tool
+ * handlers bound to its view. No transport/server to tear down. Constructed by
+ * the REST router (Phase 4); declared here so the lifecycle handles both kinds.
+ */
+type RestSession = BaseSession & {
+  kind: "rest";
+  handlers: Map<string, (args: unknown) => Promise<ToolResult>>;
+};
+type Session = McpSession | RestSession;
 
 const MAX_BODY_BYTES = config.maxRequestBytes;
 /**
@@ -96,8 +112,11 @@ export function createApp(opts: AppOptions = {}): {
     const session = sessions.get(sid);
     if (!session) return;
     sessions.delete(sid);
-    if (!skipTransportClose) await session.transport.close().catch(() => {});
-    await session.server.close().catch(() => {});
+    // Only MCP sessions own a transport/server; REST holders are pure in-memory.
+    if (session.kind === "mcp") {
+      if (!skipTransportClose) await session.transport.close().catch(() => {});
+      await session.server.close().catch(() => {});
+    }
     if (profileSessionCount(session.profileName) === 0) {
       logInfo(`Shutting down browser for profile "${session.profileName}" (no remaining sessions)`);
       await session.browser.shutdown();
@@ -189,7 +208,10 @@ export function createApp(opts: AppOptions = {}): {
     const sid = (req.headers["mcp-session-id"] as string | undefined) ?? undefined;
     const body = req.method === "POST" ? await readJsonBody(req) : undefined;
 
-    let session: Session | undefined = sid ? sessions.get(sid) : undefined;
+    const existing = sid ? sessions.get(sid) : undefined;
+    // Only MCP sessions are addressable via mcp-session-id; never treat a REST
+    // profile-holder entry as an MCP session.
+    let session: McpSession | undefined = existing && existing.kind === "mcp" ? existing : undefined;
 
     if (!session) {
       if (req.method !== "POST" || !isInitializeRequest(body)) {
@@ -212,7 +234,8 @@ export function createApp(opts: AppOptions = {}): {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
-          const newSession: Session = {
+          const newSession: McpSession = {
+            kind: "mcp",
             server,
             transport,
             browser,
@@ -230,7 +253,7 @@ export function createApp(opts: AppOptions = {}): {
         }
       };
       await server.connect(transport);
-      session = { server, transport, browser, view, profileName, lastUsed: Date.now() };
+      session = { kind: "mcp", server, transport, browser, view, profileName, lastUsed: Date.now() };
     }
 
     session.lastUsed = Date.now();
@@ -340,8 +363,10 @@ export function createApp(opts: AppOptions = {}): {
     const browsers = new Set<BrowserManager>();
     for (const session of sessions.values()) {
       browsers.add(session.browser);
-      await session.transport.close().catch(() => {});
-      await session.server.close().catch(() => {});
+      if (session.kind === "mcp") {
+        await session.transport.close().catch(() => {});
+        await session.server.close().catch(() => {});
+      }
     }
     sessions.clear();
     for (const browser of browsers) {
