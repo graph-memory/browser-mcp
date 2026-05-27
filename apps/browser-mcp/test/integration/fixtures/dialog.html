@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Dialog test</title></head>
+<body>
+  <h1>Dialogs</h1>
+  <button id="confirmBtn" type="button">Confirm</button>
+  <button id="promptBtn" type="button">Prompt</button>
+  <div id="out">idle</div>
+  <script>
+    document.getElementById("confirmBtn").addEventListener("click", () => {
+      document.getElementById("out").textContent = confirm("Proceed?") ? "confirmed" : "cancelled";
+    });
+    document.getElementById("promptBtn").addEventListener("click", () => {
+      const v = window.prompt("Your name?");
+      document.getElementById("out").textContent = "got:" + v;
+    });
+  </script>
+</body>
+</html>

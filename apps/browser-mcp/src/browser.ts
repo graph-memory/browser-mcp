@@ -71,6 +71,7 @@ export class BrowserManager {
   private reqStart = new WeakMap<object, { ts: number; tab_id: string }>();
   private snapshotStore = new Map<string, AxNode>();
   private currentTabId: string | null = null;
+  private dialogPolicy: { action: "accept" | "dismiss"; promptText?: string; oneShot: boolean } | null = null;
   private headless: boolean;
   private sweepTimer: NodeJS.Timeout | null = null;
   readonly profileName: string;
@@ -227,6 +228,17 @@ export class BrowserManager {
     });
     page.on("pageerror", (err) => {
       this.pushConsole({ ts: Date.now(), tab_id: id, level: "pageerror", text: err.message });
+    });
+
+    // Native dialogs (alert/confirm/prompt) follow the configured policy.
+    // Default (no policy set) = dismiss, matching Playwright's auto-dismiss.
+    page.on("dialog", async (d) => {
+      const p = this.dialogPolicy;
+      if (p?.oneShot) this.dialogPolicy = null;
+      try {
+        if (p?.action === "accept") await d.accept(p.promptText);
+        else await d.dismiss();
+      } catch { /* dialog may already be handled */ }
     });
 
     page.on("close", () => {
@@ -525,6 +537,41 @@ export class BrowserManager {
     const dst = resolveLocator(page, target, targetType, targetOpts).first();
     await src.dragTo(dst, { timeout: 10_000 });
     await this.settle(page);
+  }
+
+  /** Read/write localStorage or sessionStorage for the active tab's origin. */
+  async storage(
+    action: "get" | "set" | "remove" | "clear",
+    area: "local" | "session",
+    key: string | undefined,
+    value: string | undefined,
+    tabId?: string,
+  ): Promise<Record<string, string | null> | { ok: true }> {
+    const page = this.getPage(tabId);
+    return page.evaluate(
+      ({ action, area, key, value }) => {
+        const store = area === "session" ? sessionStorage : localStorage;
+        if (action === "set") { store.setItem(key!, value ?? ""); return { ok: true as const }; }
+        if (action === "remove") { store.removeItem(key!); return { ok: true as const }; }
+        if (action === "clear") { store.clear(); return { ok: true as const }; }
+        // get
+        if (key) return { [key]: store.getItem(key) };
+        const all: Record<string, string | null> = {};
+        for (let i = 0; i < store.length; i++) { const k = store.key(i)!; all[k] = store.getItem(k); }
+        return all;
+      },
+      { action, area, key, value },
+    );
+  }
+
+  /** Set the dialog (alert/confirm/prompt) handling policy for subsequent dialogs. */
+  setDialogPolicy(action: "accept" | "dismiss", promptText: string | undefined, persist: boolean): void {
+    this.dialogPolicy = { action, promptText, oneShot: !persist };
+  }
+
+  async setGeolocation(latitude: number, longitude: number, accuracy?: number): Promise<void> {
+    const ctx = await this.ensureContext();
+    await ctx.setGeolocation({ latitude, longitude, ...(accuracy !== undefined && { accuracy }) });
   }
 
   async scroll(

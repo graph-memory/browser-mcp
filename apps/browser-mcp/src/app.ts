@@ -37,6 +37,9 @@ import { downloadSchema, makeDownloadHandler } from "./tools/download.js";
 import { cookiesSchema, makeCookiesHandler } from "./tools/cookies.js";
 import { networkSchema, makeNetworkHandler } from "./tools/network.js";
 import { consoleSchema, makeConsoleHandler } from "./tools/console.js";
+import { storageSchema, makeStorageHandler } from "./tools/storage.js";
+import { dialogSchema, makeDialogHandler } from "./tools/dialog.js";
+import { geolocationSchema, makeGeolocationHandler } from "./tools/geolocation.js";
 import {
   pressSchema, makePressHandler,
   hoverSchema, makeHoverHandler,
@@ -334,6 +337,29 @@ export function buildServer(browser: BrowserManager): McpServer {
       "Filter by tab_id, level, or text_regex. Great for debugging SPA errors the UI swallowed.",
     inputSchema: consoleSchema,
   }, withLog("browser_console_log", makeConsoleHandler(browser)));
+
+  server.registerTool("browser_storage", {
+    description:
+      "Read/write the active tab's localStorage or sessionStorage (per-origin). action=get returns a " +
+      "key (or all keys), set writes key+value, remove deletes a key, clear wipes the store. " +
+      "localStorage persists in the named profile.",
+    inputSchema: storageSchema,
+  }, withLog("browser_storage", makeStorageHandler(browser)));
+
+  server.registerTool("browser_handle_dialog", {
+    description:
+      "Set how the next native dialog (alert/confirm/prompt) is handled — call this BEFORE the action " +
+      "that triggers it. action=accept (OK) or dismiss (Cancel); prompt_text fills a prompt; persist=true " +
+      "applies to all dialogs. Without this, dialogs are auto-dismissed.",
+    inputSchema: dialogSchema,
+  }, withLog("browser_handle_dialog", makeDialogHandler(browser)));
+
+  server.registerTool("browser_set_geolocation", {
+    description:
+      "Set the emulated geolocation coordinates for the browser context. Pair with browser_permissions " +
+      "(grant 'geolocation') so the page's navigator.geolocation can read them.",
+    inputSchema: geolocationSchema,
+  }, withLog("browser_set_geolocation", makeGeolocationHandler(browser)));
 
   server.registerTool("browser_configure", {
     description:
