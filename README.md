@@ -1153,8 +1153,11 @@ npm version patch -w @graphmemory/browser-mcp   # or minor / major
 git push && git push --tags
 ```
 
-Triggers `publish.yml` (npm publish of the workspace package) and `docker.yml`
-(image build). Both run the full test suite first.
+Triggers two independent workflows: `publish.yml` (npm publish of the workspace
+package — **gated on the full test suite**) and `docker.yml` (multi-arch image
+build, which compiles TypeScript via the Dockerfile but does not re-run the
+suite). Tag a commit that has already passed CI (`ci.yml` runs on every branch
+push / PR) so the published package and image come from tested code.
 
 ---
 
