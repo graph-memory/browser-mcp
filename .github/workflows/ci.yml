@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -20,6 +21,10 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    # Bound the whole job so a wedged Playwright download or a Chromium that
+    # won't exit can't burn GitHub's 6 h default and sit for hours. Normal
+    # runs finish in well under 10 min.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -29,9 +34,15 @@ jobs:
       - run: npm ci --ignore-scripts
       # Playwright Chromium + OS deps required by headless Chromium.
       # --with-deps installs the libnss / libgbm / libasound / etc. bundle.
+      # Step-scoped timeout so a hung CDN download / apt lock fails fast here
+      # instead of silently sitting for hours.
       - run: npx playwright install --with-deps chromium
+        timeout-minutes: 8
       - run: npm run build
       - run: npm run test:coverage
+        # If a fork leaves a Chromium subprocess alive, vitest can't exit and
+        # the step would hang; cap it so that surfaces as a fast failure.
+        timeout-minutes: 15
         env:
           # Tests use local HTML fixtures and an in-process HTTP server only.
           BROWSER_MCP_HEADLESS: '1'
