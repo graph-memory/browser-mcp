@@ -17,6 +17,7 @@ export const readSchema = {
     ),
   selector: z
     .string()
+    .max(2_048)
     .optional()
     .describe("CSS selector to narrow extraction to a specific element (outerHTML/innerText of that node)"),
   max_chars: z

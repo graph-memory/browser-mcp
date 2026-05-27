@@ -13,8 +13,12 @@ export const saveSchema = {
     ),
   path: z.string().max(4_096)
     .describe(
-      "Absolute or relative path where to write the file. Parent directories " +
-      "are created automatically. Relative paths resolve against the supervisor's cwd.",
+      "Where to write the file. By default it must stay inside this profile's " +
+      "download sandbox (~/.browser-mcp/downloads/<profile>/): relative paths " +
+      "resolve against the sandbox and absolute paths that escape it are rejected. " +
+      "Parent directories are created automatically. Set " +
+      "BROWSER_MCP_ALLOW_ANY_WRITE_PATH=1 to write to any path (relative paths " +
+      "then resolve against the supervisor's cwd).",
     ),
   full_page: z.boolean().default(false)
     .describe("PDF only: include full scrollable page (true) vs just viewport (default)."),

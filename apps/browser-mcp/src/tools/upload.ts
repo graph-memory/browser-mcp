@@ -13,7 +13,10 @@ export const uploadSchema = {
     .describe("Locator strategy. selector / label / testid. (role/text rarely apply to file inputs.)"),
   files: z.array(z.string().max(4_096)).min(1).max(32)
     .describe(
-      "Absolute or relative paths to files to upload. Relative paths resolve against the supervisor's cwd. " +
+      "Paths to files to upload. By default each must live inside this profile's " +
+      "upload sandbox (~/.browser-mcp/uploads/<profile>/): relative paths resolve " +
+      "against the sandbox and absolute paths that escape it are rejected (set " +
+      "BROWSER_MCP_ALLOW_ANY_UPLOAD_PATH=1 to upload from anywhere). " +
       "For <input multiple>, pass several; for single-file inputs, pass one. Each file is validated to exist.",
     ),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),

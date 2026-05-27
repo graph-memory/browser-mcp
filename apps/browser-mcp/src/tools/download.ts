@@ -5,8 +5,7 @@ import type { BrowserManager, LocatorType } from "../browser.js";
 import { resolveLocator } from "../browser.js";
 import { assertNavigableUrl } from "../lib/url-safety.js";
 import { resolveWritePath } from "../lib/path-sandbox.js";
-
-const LOCATOR_TYPES = ["text", "role", "label", "placeholder", "testid", "selector"] as const;
+import { LOCATOR_TYPES, ROLES } from "./locators.js";
 
 export const downloadSchema = {
   action: z.enum(["click", "navigate"]).default("click")
@@ -17,13 +16,16 @@ export const downloadSchema = {
   target: z.string().max(2_048).optional()
     .describe("For action='click': the button/link that triggers the download."),
   target_type: z.enum(LOCATOR_TYPES).default("text").describe("Locator strategy for `target`."),
-  role: z.string().optional().describe("ARIA role when target_type='role'."),
+  role: z.enum(ROLES).optional().describe("ARIA role when target_type='role'."),
   url: z.string().url().optional()
     .describe("For action='navigate': URL that triggers the download."),
   save_to: z.string().max(4_096)
     .describe(
-      "Path (absolute or relative) to save the downloaded file. " +
-      "If it ends with '/' or points to an existing directory, the server's suggested filename is used.",
+      "Where to save the downloaded file. By default it must stay inside this " +
+      "profile's download sandbox (~/.browser-mcp/downloads/<profile>/): relative " +
+      "paths resolve against the sandbox and absolute paths that escape it are " +
+      "rejected (set BROWSER_MCP_ALLOW_ANY_WRITE_PATH=1 to disable). " +
+      "If it ends with '/' or points to an existing directory, the server's suggested filename is appended.",
     ),
   timeout_ms: z.number().int().positive().max(600_000).default(60_000)
     .describe("How long to wait for the download to start AND complete."),

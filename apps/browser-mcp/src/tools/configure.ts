@@ -123,6 +123,7 @@ export const configureSchema = {
     .describe("Enable mobile mode (mobile viewport behavior + touch). Restarts the browser context."),
   user_agent: z
     .string()
+    .max(512)
     .optional()
     .describe("Custom User-Agent string. Overrides ua_preset if both are set."),
   ua_preset: z
@@ -131,6 +132,7 @@ export const configureSchema = {
     .describe("User-Agent preset. Ignored if user_agent or device_preset is set."),
   locale: z
     .string()
+    .max(64)
     .optional()
     .describe("Accept-Language locale (e.g. \"en-US\", \"ru-RU\", \"ja-JP\")"),
   color_scheme: z

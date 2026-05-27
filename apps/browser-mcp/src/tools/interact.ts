@@ -2,23 +2,7 @@ import { z } from "zod";
 import type { BrowserManager, LocatorType } from "../browser.js";
 import { config } from "../config.js";
 import { truncate } from "../render.js";
-
-const LOCATOR_TYPES = ["text", "role", "label", "placeholder", "testid", "selector"] as const;
-
-const ROLES = [
-  "alert", "alertdialog", "application", "article", "banner", "blockquote",
-  "button", "caption", "cell", "checkbox", "code", "columnheader", "combobox",
-  "complementary", "contentinfo", "definition", "deletion", "dialog", "directory",
-  "document", "emphasis", "feed", "figure", "form", "generic", "grid", "gridcell",
-  "group", "heading", "img", "insertion", "link", "list", "listbox", "listitem",
-  "log", "main", "marquee", "math", "meter", "menu", "menubar", "menuitem",
-  "menuitemcheckbox", "menuitemradio", "navigation", "none", "note", "option",
-  "paragraph", "presentation", "progressbar", "radio", "radiogroup", "region",
-  "row", "rowgroup", "rowheader", "scrollbar", "search", "searchbox", "separator",
-  "slider", "spinbutton", "status", "strong", "subscript", "superscript", "switch",
-  "tab", "table", "tablist", "tabpanel", "term", "textbox", "time", "timer",
-  "toolbar", "tooltip", "tree", "treegrid", "treeitem",
-] as const;
+import { LOCATOR_TYPES, ROLES } from "./locators.js";
 
 export const clickSchema = {
   target: z
@@ -241,7 +225,7 @@ export function makeFindHandler(browser: BrowserManager) {
 }
 
 export const waitSchema = {
-  selector: z.string().describe("CSS selector to wait for"),
+  selector: z.string().max(2_048).describe("CSS selector to wait for"),
   state: z
     .enum(["visible", "hidden", "attached", "detached"])
     .default("visible")
@@ -277,6 +261,7 @@ export function makeWaitHandler(browser: BrowserManager) {
 export const evaluateSchema = {
   expression: z
     .string()
+    .max(10_000)
     .describe(
       "JavaScript expression to evaluate in the page context. Must return a JSON-serializable value.",
     ),

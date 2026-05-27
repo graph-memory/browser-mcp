@@ -1,8 +1,7 @@
 import { z } from "zod";
 import type { BrowserManager, LocatorType } from "../browser.js";
 import { resolveLocator } from "../browser.js";
-
-const LOCATOR_TYPES = ["text", "role", "label", "placeholder", "testid", "selector"] as const;
+import { LOCATOR_TYPES, ROLES } from "./locators.js";
 
 export const expectSchema = {
   assertion: z.enum([
@@ -21,7 +20,7 @@ export const expectSchema = {
     .describe("Element target. Required for all element/text/count assertions; ignored for url_* and title_*."),
   target_type: z.enum(LOCATOR_TYPES).default("selector")
     .describe("Locator strategy for `target`."),
-  role: z.string().optional().describe("ARIA role when target_type='role'."),
+  role: z.enum(ROLES).optional().describe("ARIA role when target_type='role'."),
   exact: z.boolean().default(false).describe("Exact match for text/role/label/placeholder locators."),
   expected: z.union([z.string().max(4_096), z.number()]).optional()
     .describe(
