@@ -275,6 +275,28 @@ concurrent clients, give each its own named profile (`/mcp/<name>`).
 All tools accept structured arguments (zod-validated). Responses are single-
 block `text` content (except `browser_screenshot`, which returns `image`).
 
+### Locator conventions
+
+Every element-targeting tool resolves `target` through the same six strategies
+(`target_type`): `text`, `role`, `label`, `placeholder`, `testid`, `selector`
+(CSS). `exact` toggles substring vs exact match (ignored by `testid`/`selector`);
+`role` names the ARIA role for `target_type: "role"` (defaults to `button`).
+Strings are length-capped at the zod boundary (`target` ≤ 2048).
+
+A few **intentional** per-tool differences (not inconsistencies):
+
+- **Default `target_type`** is `text` for most tools, but `label` for the
+  form-oriented ones — `browser_select_option`, `browser_check`, and
+  `browser_fill_form` fields — since `label` is the cleanest handle for form
+  controls. (A `fill_form` `submit` button still defaults to `text`, like
+  `browser_click`.)
+- **`browser_upload`** uses a narrower set — `selector` / `label` / `testid`
+  (default `selector`), no `role`/`exact` — file inputs are rarely addressable
+  by role or text.
+- **`browser_drag`** targets two elements, so it uses `source_*` / `target_*`
+  parameters instead of a single `role`, and omits `exact`.
+- **`browser_download_wait`** omits `exact` (download triggers are click-like).
+
 ### `browser_open`
 
 Open a URL in a new tab, or navigate an existing tab if `tab_id` is given.
