@@ -30,6 +30,7 @@ Claude Code ──HTTP──▶  browser-mcp  ──Playwright──▶  Chromiu
 - [Features](#features)
 - [Named profiles](#named-profiles)
 - [Tools reference](#tools-reference)
+- [REST API (for scripts)](#rest-api-for-scripts)
 - [Configuration](#configuration)
 - [Architecture](#architecture)
 - [Security model](#security-model)
@@ -95,6 +96,8 @@ browser-mcp listening on http://127.0.0.1:7777/mcp
   health       → http://127.0.0.1:7777/health
   /mcp         → default profile
   /mcp/<name>  → named profile (e.g. /mcp/test1)
+  REST (json)  → POST http://127.0.0.1:7777/api/v1/tools/<tool>?profile=<name>
+  REST tools   → GET  http://127.0.0.1:7777/api/v1/tools
   auth         → DISABLED (loopback only)
   cors_origin  → null
   max_sessions → 50
@@ -217,7 +220,7 @@ browser_cookies       { action: "get", urls: ["https://example.com/"] }
   Hard cap on concurrent sessions (`max_sessions`, default 50).
 - **Multi-arch Docker image.** linux/amd64 + linux/arm64, non-root `browser`
   user, `tini` as PID 1 for zombie reaping, healthcheck wired to `/health`.
-- **Full test suite.** 433 tests (unit + integration against a real headless
+- **Full test suite.** 470 tests (unit + integration against a real headless
   Chromium) covering every tool handler, the HTTP server (auth/CSRF/session
   lifecycle), and the AX-tree pipeline. See [Testing](#testing).
 
@@ -746,6 +749,73 @@ Device presets:
 
 ---
 
+## REST API (for scripts)
+
+Besides MCP, the server exposes a **stateless REST/JSON API** at `/api/v1` so scripts in any
+language (curl, Python, JS) can drive the **same live browser** an agent uses — without the MCP
+handshake — and get **structured JSON** back instead of LLM-formatted text.
+
+**Model.** Every call is an independent `POST`; there's no session handshake. `?profile=<name>`
+selects which shared browser to drive — use the same profile an MCP agent uses and you share its
+cookies, tabs, and network log. Tabs are shared and addressable: pass an explicit `tab_id` in the
+body to act on a specific one (your "active tab" is independent of the agent's; for concurrent
+scripts always pass `tab_id`). The server keeps one in-memory *profile holder* per profile that
+reuses the shared browser across requests; it's reaped on the same idle TTL as MCP sessions (or
+released eagerly via `DELETE`). The same auth / Origin / content-type / body-size guards and the
+`max_sessions` cap apply to `/api` as to `/mcp`.
+
+**Endpoints.**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/v1/tools/<tool>?profile=<name>` | Run a tool. Body = JSON args (same schema as the MCP tool). |
+| `GET`  | `/api/v1/tools` | List tools (names + descriptions). |
+| `GET`  | `/api/v1/openapi.json` | OpenAPI 3.1 spec (generate clients with `openapi-typescript`, etc.). |
+| `DELETE` | `/api/v1/profiles/<name>` | Release a profile holder (closes its browser if no MCP session holds it). |
+
+**Response envelope.** HTTP status reflects the *transport* only; the tool's outcome lives in the
+body. A tool that ran — even one that "failed" like a `browser_expect` assertion — returns **200**:
+
+```jsonc
+// 200 — success
+{ "ok": true, "data": { "tab_id": "t1", "url": "https://example.com/", "title": "Example", "status": 200 },
+  "content": [{ "type": "text", "text": "HTTP 200\nURL: …" }] }
+
+// 200 — tool-level failure (ok:false, not an HTTP error)
+{ "ok": false, "error": { "message": "FAIL visible …" }, "data": { "ok": false, "actual": "hidden" } }
+```
+
+Non-2xx is reserved for transport problems: **400** invalid args (zod `issues` included) or bad
+profile, **401** missing/invalid Bearer, **403** Origin not allowed, **404** unknown tool, **415**
+non-JSON body, **503** session cap reached.
+
+**curl.**
+
+```bash
+curl -s -XPOST 'http://127.0.0.1:7777/api/v1/tools/browser_open?profile=work' \
+  -H 'content-type: application/json' -d '{"url":"https://example.com"}'
+
+curl -s -XPOST 'http://127.0.0.1:7777/api/v1/tools/browser_read?profile=work' \
+  -H 'content-type: application/json' -d '{"mode":"markdown"}' | jq -r '.data.content'
+# with auth: add  -H 'authorization: Bearer <key>'
+```
+
+**JS/TS client.** A tiny dependency-free client lives in
+[`packages/browser-client-js`](packages/browser-client-js/) (`@graphmemory/browser-client`):
+
+```ts
+import { BrowserClient } from "@graphmemory/browser-client";
+const b = new BrowserClient({ baseUrl: "http://127.0.0.1:7777", profile: "work" });
+const { data } = await b.read({ mode: "markdown" });
+```
+
+**Limitations.** `browser_screenshot` returns base64 in `content`. File-path tools
+(`browser_save` / `browser_upload` / `browser_download_wait`) operate on the **server's**
+filesystem (sandboxed by the same IO guards). The client is Node-targeted; browser-tab callers
+need a matching `--cors-origin` and CORS preflight, which the server doesn't emit.
+
+---
+
 ## Configuration
 
 All flags are optional — loopback-only defaults work out of the box. Priority:
@@ -825,25 +895,35 @@ profile expires, the context shuts down.
 ### HTTP layer
 
 Transport: `@modelcontextprotocol/sdk`'s `StreamableHTTPServerTransport` on
-top of `node:http`. One TCP listener, endpoints `/mcp`, `/mcp/<profile>`, and
-`/health`.
+top of `node:http`. One TCP listener serving two surfaces — MCP (`/mcp`,
+`/mcp/<profile>`) and the stateless REST API (`/api/v1/*`) — plus `/health`.
+Both surfaces share one tool registry (`src/registry.ts` → `TOOLS`), so a tool
+is defined once and exposed on both; they also share the per-profile
+`BrowserManager` (see below), so a REST script and an MCP agent on the same
+profile drive the very same browser.
 
 Each MCP client gets a session on `initialize` (random UUID in
 `mcp-session-id`). Sessions have their own `McpServer` instance and transport.
-Idle sessions are reaped after `session_ttl` via a 60 s interval timer.
+The REST side is sessionless to the caller; internally it keeps one *profile
+holder* (a session record with `kind:"rest"`, no transport) per profile that
+caches the shared browser + per-tool handlers. Both kinds live in one map,
+share the `max_sessions` cap, and are reaped after `session_ttl` via a 60 s
+interval timer; the browser is shut down only when neither an MCP session nor a
+REST holder references the profile (ref-count).
 
 Hard caps: `max_sessions` (503 on overflow), max request body (1 MB default,
 `BROWSER_MCP_MAX_REQUEST_BYTES`), per-tool zod `.max(…)` on every user string.
 
-Request pipeline for `/mcp`:
+Request pipeline (shared guard gate for `/mcp` and `/api`):
 
 ```
-→ URL check (startsWith /mcp) + profile-name validation
+→ Route (/mcp[/<profile>] or /api/v1/…) ; else 404
 → Origin check (allowlist; unset Origin = native client, always allowed)
 → Content-Type check (POST requires application/json)
 → Auth check (Bearer, timingSafeEqual)
-→ session lookup / create (cap applied on create)
-→ MCP SDK transport.handleRequest
+→ /mcp → session lookup/create → MCP SDK transport.handleRequest
+  /api → profile holder lookup/create → runTool → JSON envelope
+  (both apply the max_sessions cap on create)
 ```
 
 `apps/browser-mcp/src/app.ts` exports `createApp()` which returns the
@@ -1085,15 +1165,15 @@ URLs visited, cookies, or any page content.
 ## Testing
 
 ```bash
-npm test                  # run 433 tests once (vitest)
+npm test                  # run 470 tests once (vitest)
 npm run test:watch        # watch mode
 npm run test:coverage     # run + coverage report under coverage/
 npm run test:integration  # Playwright-backed tests only
 ```
 
-The suite is split across 43 files:
+The suite is split across 48 files:
 
-- **Unit** (18 files): pure-logic tests for `render.ts` (compact helpers),
+- **Unit** (21 files): pure-logic tests for `render.ts` (compact helpers),
   AX-tree manipulation (`cdpAxToTree` with synthetic CDP payloads,
   `filterCompact`, `diffSnapshots`, `collapseRedundantText`, `renderAxNode`),
   `config.ts` helpers, tunable config wiring (action/nav timeouts, ring
@@ -1102,13 +1182,16 @@ The suite is split across 43 files:
   console ring buffers, `resolveLocator` routing, `insecureStartupProblem` gate,
   and mock-driven tool handlers for edge branches (snapshot diff overflow,
   cookies no-flags, PDF headless error, download failure, permissions without
-  http origin).
-- **Integration** (25 files): drive a real headless Chromium via
+  http origin). Also the tool registry, the REST `runTool` status mapping +
+  route parsing, and OpenAPI generation (all 36 schemas convert).
+- **Integration** (27 files): drive a real headless Chromium via
   `BrowserManager` against local HTML fixtures. Covers every tool handler,
   `BrowserManager`'s public surface (including proxy-configured context), the
   HTTP server (CSRF / auth / session lifecycle / MCP JSON-RPC / session cap),
-  and the AX-tree pipeline end-to-end. An in-process HTTP test server
-  exercises 2xx/4xx/5xx branches and failed network entries.
+  the REST surface (`/api/v1` happy/error paths, guards, profile-holder
+  lifecycle, cross-surface ref-count, OpenAPI endpoint), and the AX-tree
+  pipeline end-to-end. An in-process HTTP test server exercises 2xx/4xx/5xx
+  branches and failed network entries.
 
 Integration tests use `BROWSER_MCP_HEADLESS=1` and a throwaway profile
 directory under `os.tmpdir()` — your local `~/.browser-mcp/profiles/` is not
@@ -1194,7 +1277,7 @@ cd browser-mcp
 npm install         # installs all workspaces, hoists node_modules to root
 npm run dev         # run with tsx (no build step)
 npm run build       # compile TypeScript to apps/browser-mcp/dist/
-npm test            # full test suite (433 tests)
+npm test            # full test suite (470 tests)
 npm run test:coverage
 ```
 
