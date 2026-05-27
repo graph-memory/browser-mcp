@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager, LocatorType } from "../browser.js";
+import type { BrowserApi, LocatorType } from "../browser.js";
 import { config } from "../config.js";
 import { truncate } from "../render.js";
 import { LOCATOR_TYPES, ROLES } from "./locators.js";
@@ -34,7 +34,7 @@ export const clickSchema = {
     .describe("Exact match vs substring (for text/role/label/placeholder)."),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makeClickHandler(browser: BrowserManager) {
+export function makeClickHandler(browser: BrowserApi) {
   return async ({
     target,
     target_type,
@@ -77,7 +77,7 @@ export const typeSchema = {
     .describe("Press Enter after typing (e.g. to submit a search or login form)"),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makeTypeHandler(browser: BrowserManager) {
+export function makeTypeHandler(browser: BrowserApi) {
   return async ({
     target,
     target_type,
@@ -118,7 +118,7 @@ export const scrollSchema = {
     .describe("Pixels to scroll when direction is up/down (ignored for top/bottom)"),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makeScrollHandler(browser: BrowserManager) {
+export function makeScrollHandler(browser: BrowserApi) {
   return async ({
     direction,
     amount,
@@ -148,7 +148,7 @@ export function makeScrollHandler(browser: BrowserManager) {
 export const backSchema = {
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makeBackHandler(browser: BrowserManager) {
+export function makeBackHandler(browser: BrowserApi) {
   return async ({ tab_id }: { tab_id?: string }) => {
     const info = await browser.back(tab_id);
     const text = info.no_history
@@ -161,7 +161,7 @@ export function makeBackHandler(browser: BrowserManager) {
 export const forwardSchema = {
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makeForwardHandler(browser: BrowserManager) {
+export function makeForwardHandler(browser: BrowserApi) {
   return async ({ tab_id }: { tab_id?: string }) => {
     const info = await browser.forward(tab_id);
     const text = info.no_history
@@ -174,7 +174,7 @@ export function makeForwardHandler(browser: BrowserManager) {
 export const reloadSchema = {
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makeReloadHandler(browser: BrowserManager) {
+export function makeReloadHandler(browser: BrowserApi) {
   return async ({ tab_id }: { tab_id?: string }) => {
     const info = await browser.reload(tab_id);
     return { content: [{ type: "text" as const, text: `Reloaded → ${info.url}` }] };
@@ -194,7 +194,7 @@ export const findSchema = {
     .describe("Maximum number of matches to return"),
   tab_id: z.string().optional().describe("Tab to search in; defaults to the active tab"),
 };
-export function makeFindHandler(browser: BrowserManager) {
+export function makeFindHandler(browser: BrowserApi) {
   return async ({
     query,
     limit,
@@ -231,7 +231,7 @@ export const waitSchema = {
     .describe("Max wait time in milliseconds"),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makeWaitHandler(browser: BrowserManager) {
+export function makeWaitHandler(browser: BrowserApi) {
   return async ({
     selector,
     condition,
@@ -270,7 +270,7 @@ export const evaluateSchema = {
     ),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makeEvaluateHandler(browser: BrowserManager) {
+export function makeEvaluateHandler(browser: BrowserApi) {
   return async ({
     expression,
     tab_id,

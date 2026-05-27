@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 
 const VIEWPORT_PRESETS: Record<string, { width: number; height: number }> = {
   "mobile":     { width: 375, height: 812 },
@@ -146,7 +146,7 @@ export const configureSchema = {
   tab_id: z.string().optional().describe("Tab to apply viewport/color_scheme to; defaults to the active tab. Ignored when context restarts."),
 };
 
-export function makeConfigureHandler(browser: BrowserManager) {
+export function makeConfigureHandler(browser: BrowserApi) {
   return async ({
     device_preset,
     viewport_preset,

@@ -937,6 +937,23 @@ export class BrowserManager {
   }
 }
 
+/**
+ * The handler-facing surface of a browser. Both BrowserManager (standalone /
+ * tests) and BrowserSession (per-session view, src/browser-session.ts) satisfy
+ * it. Pick gives a structural type (no private brand), so either class is
+ * assignable where a handler expects a `BrowserApi`.
+ */
+export type BrowserApi = Pick<BrowserManager,
+  | "navigate" | "getPage" | "listTabs" | "closeTab" | "switchTab" | "activeTabId" | "openVisible"
+  | "click" | "type" | "press" | "hover" | "selectOption" | "setChecked" | "drag"
+  | "scroll" | "back" | "forward" | "reload" | "find" | "storage"
+  | "screenshot" | "elementScreenshot" | "a11ySnapshot" | "storeSnapshot" | "getStoredSnapshot"
+  | "setViewport" | "setColorScheme" | "getContext" | "reconfigure"
+  | "setUserAgent" | "setLocale" | "setExtraHeaders" | "setGeolocation" | "setDialogPolicy"
+  | "readNetLog" | "readConsoleLog" | "readNetworkBodies"
+  | "profileName" | "profileDir"
+>;
+
 // --- Locator strategies (role/label/text/placeholder/testid/selector) ---
 
 export type LocatorType = "text" | "role" | "label" | "placeholder" | "testid" | "selector";

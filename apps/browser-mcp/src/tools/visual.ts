@@ -1,12 +1,12 @@
 import { z } from "zod";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 
 export const openVisibleSchema = {
   url: z
     .url()
     .describe("URL to open in a visible (non-headless) Chrome window for manual interaction"),
 };
-export function makeOpenVisibleHandler(browser: BrowserManager) {
+export function makeOpenVisibleHandler(browser: BrowserApi) {
   return async ({ url }: { url: string }) => {
     const info = await browser.openVisible(url);
     return {
@@ -35,7 +35,7 @@ export const screenshotSchema = {
     ),
   tab_id: z.string().optional().describe("Tab to capture; defaults to the active tab"),
 };
-export function makeScreenshotHandler(browser: BrowserManager) {
+export function makeScreenshotHandler(browser: BrowserApi) {
   return async ({
     full_page,
     selector,

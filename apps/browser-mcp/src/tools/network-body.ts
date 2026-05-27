@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 import { config } from "../config.js";
 import { truncate } from "../render.js";
 
@@ -12,7 +12,7 @@ export const networkBodySchema = {
     .describe("Which match to return, counting back from the most recent (0 = latest, 1 = previous, …)."),
 };
 
-export function makeNetworkBodyHandler(browser: BrowserManager) {
+export function makeNetworkBodyHandler(browser: BrowserApi) {
   return async (args: { url_regex?: string; method?: string; index: number }) => {
     let matches;
     try {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 import { assertOriginUrl } from "../lib/url-safety.js";
 
 const PERMS = [
@@ -28,7 +28,7 @@ export const permissionsSchema = {
     .describe("Tab whose origin to use when `origin` is omitted. Defaults to active tab."),
 };
 
-export function makePermissionsHandler(browser: BrowserManager) {
+export function makePermissionsHandler(browser: BrowserApi) {
   return async (args: {
     grant: "all" | "none" | (typeof PERMS)[number][];
     origin?: string;

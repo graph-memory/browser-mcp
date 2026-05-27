@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { existsSync, statSync } from "node:fs";
-import type { BrowserManager, LocatorType } from "../browser.js";
+import type { BrowserApi, LocatorType } from "../browser.js";
 import { resolveLocator } from "../browser.js";
 import { resolveReadPath } from "../lib/path-sandbox.js";
 
@@ -22,7 +22,7 @@ export const uploadSchema = {
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
 
-export function makeUploadHandler(browser: BrowserManager) {
+export function makeUploadHandler(browser: BrowserApi) {
   return async (args: {
     target: string;
     target_type: (typeof LOCATOR_TYPES)[number];

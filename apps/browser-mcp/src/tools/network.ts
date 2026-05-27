@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 
 export const networkSchema = {
   tab_id: z.string().optional()
@@ -16,7 +16,7 @@ export const networkSchema = {
     .describe("Only return responses with status >= this. Use 400 to see errors only."),
 };
 
-export function makeNetworkHandler(browser: BrowserManager) {
+export function makeNetworkHandler(browser: BrowserApi) {
   return async (args: {
     tab_id?: string;
     limit?: number;

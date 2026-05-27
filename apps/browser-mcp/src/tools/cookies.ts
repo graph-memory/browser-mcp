@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 
 export const cookiesSchema = {
   action: z.enum(["get", "set", "clear"])
@@ -27,7 +27,7 @@ export const cookiesSchema = {
     .describe("For 'set': cookies to add/update. Each needs either a single `url`, or both `domain` and `path`."),
 };
 
-export function makeCookiesHandler(browser: BrowserManager) {
+export function makeCookiesHandler(browser: BrowserApi) {
   return async (args: {
     action: "get" | "set" | "clear";
     urls?: string[];

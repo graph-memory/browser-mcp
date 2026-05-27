@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 import { assertNavigableUrl } from "../lib/url-safety.js";
 
 export const openSchema = {
@@ -14,7 +14,7 @@ export const openSchema = {
     .describe("If set, navigate this existing tab instead of opening a new one"),
 };
 
-export function makeOpenHandler(browser: BrowserManager) {
+export function makeOpenHandler(browser: BrowserApi) {
   return async ({ url, tab_id }: { url: string; tab_id?: string }) => {
     assertNavigableUrl(url);
     const info = await browser.navigate(url, tab_id);

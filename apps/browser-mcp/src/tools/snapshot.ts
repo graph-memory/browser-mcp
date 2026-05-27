@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { BrowserManager, renderAxNode, filterCompact, diffSnapshots } from "../browser.js";
+import { renderAxNode, filterCompact, diffSnapshots } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 
 export const snapshotSchema = {
   tab_id: z
@@ -68,7 +69,7 @@ export const snapshotSchema = {
     ),
 };
 
-export function makeSnapshotHandler(browser: BrowserManager) {
+export function makeSnapshotHandler(browser: BrowserApi) {
   return async (args: {
     tab_id?: string;
     selector?: string;

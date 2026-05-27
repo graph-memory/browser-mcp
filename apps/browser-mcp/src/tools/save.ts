@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { dirname } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 import { resolveWritePath } from "../lib/path-sandbox.js";
 
 export const saveSchema = {
@@ -27,7 +27,7 @@ export const saveSchema = {
   tab_id: z.string().optional().describe("Tab to save; defaults to the active tab."),
 };
 
-export function makeSaveHandler(browser: BrowserManager) {
+export function makeSaveHandler(browser: BrowserApi) {
   return async (args: {
     format: "pdf" | "mhtml" | "html";
     path: string;

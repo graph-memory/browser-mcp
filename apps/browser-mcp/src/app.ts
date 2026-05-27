@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { config } from "./config.js";
 import { safeStringEq, hostIsLoopback } from "./lib/auth.js";
-import { BrowserManager, validateProfileName } from "./browser.js";
+import { BrowserManager, validateProfileName, type BrowserApi } from "./browser.js";
+import { BrowserSession } from "./browser-session.js";
 import { openSchema, makeOpenHandler } from "./tools/open.js";
 import { readSchema, makeReadHandler } from "./tools/read.js";
 import {
@@ -116,7 +117,7 @@ function withLog<A>(name: string, fn: (args: A) => Promise<ToolResult>) {
   };
 }
 
-export function buildServer(browser: BrowserManager): McpServer {
+export function buildServer(browser: BrowserApi): McpServer {
   const server = new McpServer({ name: "browser-mcp", version: "0.2.0" });
 
   server.registerTool("browser_open", {
@@ -384,7 +385,8 @@ export function buildServer(browser: BrowserManager): McpServer {
 type Session = {
   server: McpServer;
   transport: StreamableHTTPServerTransport;
-  browser: BrowserManager;
+  browser: BrowserManager;          // shared per-profile manager (lifecycle)
+  view: BrowserSession;             // per-session view (own active tab + snapshots)
   profileName: string;
   lastUsed: number;
 };
@@ -552,7 +554,11 @@ export function createApp(opts: AppOptions = {}): {
       }
 
       const browser = getBrowserForProfile(profileName);
-      const server = buildServer(browser);
+      // Per-session view: shares the profile's BrowserContext (cookies/login)
+      // but keeps its own active tab + snapshot store, so concurrent clients
+      // on the same profile don't clobber each other.
+      const view = new BrowserSession(browser);
+      const server = buildServer(view);
 
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
@@ -561,6 +567,7 @@ export function createApp(opts: AppOptions = {}): {
             server,
             transport,
             browser,
+            view,
             profileName,
             lastUsed: Date.now(),
           };
@@ -574,7 +581,7 @@ export function createApp(opts: AppOptions = {}): {
         }
       };
       await server.connect(transport);
-      session = { server, transport, browser, profileName, lastUsed: Date.now() };
+      session = { server, transport, browser, view, profileName, lastUsed: Date.now() };
     }
 
     session.lastUsed = Date.now();

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager, ConsoleLevel } from "../browser.js";
+import type { BrowserApi, ConsoleLevel } from "../browser.js";
 
 export const consoleSchema = {
   tab_id: z.string().optional()
@@ -12,7 +12,7 @@ export const consoleSchema = {
     .describe("JS regex; only messages whose text matches are returned. Compiled and run on the server — keep it simple."),
 };
 
-export function makeConsoleHandler(browser: BrowserManager) {
+export function makeConsoleHandler(browser: BrowserApi) {
   return async (args: { tab_id?: string; level?: ConsoleLevel; limit?: number; text_regex?: string }) => {
     let result;
     try {

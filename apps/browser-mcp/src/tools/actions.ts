@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager, LocatorType } from "../browser.js";
+import type { BrowserApi, LocatorType } from "../browser.js";
 import { LOCATOR_TYPES, ROLES } from "./locators.js";
 
 // --- browser_press ---
@@ -16,7 +16,7 @@ export const pressSchema = {
   exact: z.boolean().default(false).describe("Exact match for text/role/label/placeholder."),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makePressHandler(browser: BrowserManager) {
+export function makePressHandler(browser: BrowserApi) {
   return async (a: { key: string; target?: string; target_type: LocatorType; role?: string; exact?: boolean; tab_id?: string }) => {
     await browser.press(a.key, a.target, a.target_type, a.tab_id, { role: a.role, exact: a.exact });
     const where = a.target ? ` on (${a.target_type}): ${a.target}` : " (page)";
@@ -33,7 +33,7 @@ export const hoverSchema = {
   exact: z.boolean().default(false).describe("Exact match for text/role/label/placeholder."),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makeHoverHandler(browser: BrowserManager) {
+export function makeHoverHandler(browser: BrowserApi) {
   return async (a: { target: string; target_type: LocatorType; role?: string; exact?: boolean; tab_id?: string }) => {
     await browser.hover(a.target, a.target_type, a.tab_id, { role: a.role, exact: a.exact });
     return { content: [{ type: "text" as const, text: `Hovered (${a.target_type}): ${a.target}` }] };
@@ -54,7 +54,7 @@ export const selectOptionSchema = {
     .describe("Option(s) to select. For a single-select pass one; for <select multiple> pass several."),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makeSelectOptionHandler(browser: BrowserManager) {
+export function makeSelectOptionHandler(browser: BrowserApi) {
   return async (a: {
     target: string; target_type: LocatorType; role?: string; exact?: boolean;
     by: "value" | "label" | "index"; values: string[]; tab_id?: string;
@@ -74,7 +74,7 @@ export const checkSchema = {
   checked: z.boolean().default(true).describe("true → check (default), false → uncheck. Idempotent (no-op if already in that state)."),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makeCheckHandler(browser: BrowserManager) {
+export function makeCheckHandler(browser: BrowserApi) {
   return async (a: { target: string; target_type: LocatorType; role?: string; exact?: boolean; checked: boolean; tab_id?: string }) => {
     await browser.setChecked(a.target, a.target_type, a.checked, a.tab_id, { role: a.role, exact: a.exact });
     return { content: [{ type: "text" as const, text: `${a.checked ? "Checked" : "Unchecked"} (${a.target_type}): ${a.target}` }] };
@@ -92,7 +92,7 @@ export const dragSchema = {
   target_role: z.enum(ROLES).optional().describe("ARIA role when target_type='role'."),
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
-export function makeDragHandler(browser: BrowserManager) {
+export function makeDragHandler(browser: BrowserApi) {
   return async (a: {
     source: string; source_type: LocatorType; source_role?: string;
     target: string; target_type: LocatorType; target_role?: string; tab_id?: string;

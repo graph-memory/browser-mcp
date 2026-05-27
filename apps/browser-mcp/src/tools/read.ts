@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 import {
   htmlToMarkdown,
   stripCompactHtml,
@@ -39,7 +39,7 @@ export const readSchema = {
   tab_id: z.string().optional().describe("Tab to read from; defaults to the active tab"),
 };
 
-export function makeReadHandler(browser: BrowserManager) {
+export function makeReadHandler(browser: BrowserApi) {
   return async ({
     mode,
     selector,

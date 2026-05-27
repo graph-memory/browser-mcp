@@ -1,8 +1,8 @@
 import { z } from "zod";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 
 export const tabsListSchema = {};
-export function makeTabsListHandler(browser: BrowserManager) {
+export function makeTabsListHandler(browser: BrowserApi) {
   return async () => {
     const tabs = await browser.listTabs();
     const active = browser.activeTabId;
@@ -16,7 +16,7 @@ export function makeTabsListHandler(browser: BrowserManager) {
 export const tabSwitchSchema = {
   tab_id: z.string().describe("Tab to make active (from browser_tabs_list)"),
 };
-export function makeTabSwitchHandler(browser: BrowserManager) {
+export function makeTabSwitchHandler(browser: BrowserApi) {
   return async ({ tab_id }: { tab_id: string }) => {
     browser.switchTab(tab_id);
     return { content: [{ type: "text" as const, text: `Switched to ${tab_id}` }] };
@@ -26,7 +26,7 @@ export function makeTabSwitchHandler(browser: BrowserManager) {
 export const tabCloseSchema = {
   tab_id: z.string().describe("Tab to close"),
 };
-export function makeTabCloseHandler(browser: BrowserManager) {
+export function makeTabCloseHandler(browser: BrowserApi) {
   return async ({ tab_id }: { tab_id: string }) => {
     await browser.closeTab(tab_id);
     return { content: [{ type: "text" as const, text: `Closed ${tab_id}` }] };

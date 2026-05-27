@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager, LocatorType } from "../browser.js";
+import type { BrowserApi, LocatorType } from "../browser.js";
 import { resolveLocator } from "../browser.js";
 import { LOCATOR_TYPES, ROLES } from "./locators.js";
 
@@ -50,7 +50,7 @@ type ExpectArgs = {
   tab_id?: string;
 };
 
-export function makeExpectHandler(browser: BrowserManager) {
+export function makeExpectHandler(browser: BrowserApi) {
   return async (args: ExpectArgs) => {
     const timeout = args.timeout_ms ?? 5_000;
     const page = browser.getPage(args.tab_id);

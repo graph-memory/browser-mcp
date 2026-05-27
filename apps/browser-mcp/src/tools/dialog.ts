@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 
 export const dialogSchema = {
   action: z.enum(["accept", "dismiss"]).default("accept")
@@ -10,7 +10,7 @@ export const dialogSchema = {
     .describe("false (default) = apply to the next dialog only, then revert to auto-dismiss; true = apply to all dialogs until changed."),
 };
 
-export function makeDialogHandler(browser: BrowserManager) {
+export function makeDialogHandler(browser: BrowserApi) {
   return async (a: { action: "accept" | "dismiss"; prompt_text?: string; persist: boolean }) => {
     browser.setDialogPolicy(a.action, a.prompt_text, a.persist);
     const scope = a.persist ? "all subsequent dialogs" : "the next dialog";

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
-import type { BrowserManager, LocatorType } from "../browser.js";
+import type { BrowserApi, LocatorType } from "../browser.js";
 import { resolveLocator } from "../browser.js";
 import { assertNavigableUrl } from "../lib/url-safety.js";
 import { resolveWritePath } from "../lib/path-sandbox.js";
@@ -32,7 +32,7 @@ export const downloadSchema = {
   tab_id: z.string().optional().describe("Tab to act on; defaults to the active tab"),
 };
 
-export function makeDownloadHandler(browser: BrowserManager) {
+export function makeDownloadHandler(browser: BrowserApi) {
   return async (args: {
     action: "click" | "navigate";
     target?: string;

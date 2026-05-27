@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager, LocatorType } from "../browser.js";
+import type { BrowserApi, LocatorType } from "../browser.js";
 import { LOCATOR_TYPES, ROLES } from "./locators.js";
 
 const fieldSchema = z.object({
@@ -34,7 +34,7 @@ type Field = {
   value?: string; checked?: boolean; options?: string[];
 };
 
-export function makeFillFormHandler(browser: BrowserManager) {
+export function makeFillFormHandler(browser: BrowserApi) {
   return async (a: {
     fields: Field[];
     submit?: boolean | { target: string; target_type: LocatorType; role?: string };

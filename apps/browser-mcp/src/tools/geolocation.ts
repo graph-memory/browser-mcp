@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 
 export const geolocationSchema = {
   latitude: z.number().min(-90).max(90).describe("Latitude in degrees (-90..90)."),
@@ -7,7 +7,7 @@ export const geolocationSchema = {
   accuracy: z.number().nonnegative().optional().describe("Accuracy in meters (optional)."),
 };
 
-export function makeGeolocationHandler(browser: BrowserManager) {
+export function makeGeolocationHandler(browser: BrowserApi) {
   return async (a: { latitude: number; longitude: number; accuracy?: number }) => {
     await browser.setGeolocation(a.latitude, a.longitude, a.accuracy);
     return {

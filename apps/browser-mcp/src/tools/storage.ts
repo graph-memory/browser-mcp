@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserManager } from "../browser.js";
+import type { BrowserApi } from "../browser.js";
 
 export const storageSchema = {
   action: z.enum(["get", "set", "remove", "clear"])
@@ -11,7 +11,7 @@ export const storageSchema = {
   tab_id: z.string().optional().describe("Tab whose origin to use; defaults to the active tab. Storage is per-origin."),
 };
 
-export function makeStorageHandler(browser: BrowserManager) {
+export function makeStorageHandler(browser: BrowserApi) {
   return async (a: {
     action: "get" | "set" | "remove" | "clear";
     area: "local" | "session";
