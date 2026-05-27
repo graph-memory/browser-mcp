@@ -10,9 +10,10 @@ export default defineConfig({
     // Each integration file launches its own headless Chromium. Without a cap,
     // an 8+ core machine runs too many in parallel; the contention makes
     // Chromium launch/close (in before/afterAll) exceed the hook timeout. Cap
-    // concurrent forks so browser start/stop stays fast and reliable (also
-    // steadier on CI).
-    poolOptions: { forks: { maxForks: 4, minForks: 1 } },
+    // concurrent workers so browser start/stop stays fast and reliable (also
+    // steadier on CI). Vitest 4 renamed poolOptions.forks.maxForks → top-level
+    // maxWorkers (minForks was dropped; 1 is the floor regardless).
+    maxWorkers: 4,
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],
