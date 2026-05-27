@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { rmSync } from "node:fs";
-import { bootIntegrationEnv, fixtureUrl, textOf } from "./helpers.js";
+import { bootIntegrationEnv, fixtureUrl, textOf, isToolError } from "./helpers.js";
 
 const SKIP = process.env.SKIP_INTEGRATION === "1";
 const { profileDir, profileName } = bootIntegrationEnv("configure");
@@ -41,6 +41,13 @@ describe.skipIf(SKIP)("tools/configure — presets, overrides, and restart branc
     await open({ url: fixtureUrl("article.html") });
     const r = await configure({ viewport_width: 1024, viewport_height: 768 });
     expect(textOf(r)).toContain("viewport: 1024x768");
+  }, 60_000);
+
+  it("viewport_width without viewport_height — errors instead of silently doing nothing", async () => {
+    await open({ url: fixtureUrl("article.html") });
+    const r = await configure({ viewport_width: 1024 });
+    expect(isToolError(r)).toBe(true);
+    expect(textOf(r)).toContain("must be set together");
   }, 60_000);
 
   it("user_agent (custom) — no restart, labeled 'custom'", async () => {

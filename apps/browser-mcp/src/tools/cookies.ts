@@ -22,7 +22,6 @@ export const cookiesSchema = {
     sameSite: z.enum(["Strict", "Lax", "None"]).optional(),
   })).max(64).optional()
     .describe("For 'set': cookies to add/update. Each needs either (domain+path) or a single url."),
-  tab_id: z.string().optional().describe("Reserved; currently unused — cookies are context-wide"),
 };
 
 export function makeCookiesHandler(browser: BrowserManager) {

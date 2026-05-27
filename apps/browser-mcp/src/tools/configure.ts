@@ -168,6 +168,16 @@ export function makeConfigureHandler(browser: BrowserManager) {
     color_scheme?: "light" | "dark" | "no-preference";
     tab_id?: string;
   }) => {
+    // viewport_width / viewport_height only take effect as a pair. Flag the
+    // half-set case instead of silently dropping it (which used to surface as
+    // a confusing "No changes").
+    if ((viewport_width === undefined) !== (viewport_height === undefined)) {
+      return {
+        isError: true,
+        content: [{ type: "text" as const, text: "viewport_width and viewport_height must be set together." }],
+      };
+    }
+
     const applied: string[] = [];
 
     // Phase 1: collect all context-level overrides before any restart
