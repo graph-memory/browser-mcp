@@ -62,4 +62,22 @@ describe.skipIf(SKIP)("N1 — BrowserSession isolates active tab + snapshots, sh
     await a.closeTab(info.tab_id);
     expect(() => a.getPage()).toThrow(/No active tab/);
   }, 60_000);
+
+  it("active tab closed by ANOTHER session self-heals to 'No active tab' (not 'Tab not found')", async () => {
+    const a = new BrowserSession(mgr);
+    const b = new BrowserSession(mgr);
+    const info = await a.navigate(fixtureUrl("form.html"));
+    // B closes A's tab; A never calls its own closeTab, so A.currentTabId stays stale.
+    await b.closeTab(info.tab_id);
+    expect(() => a.getPage()).toThrow(/No active tab/);     // not /Tab .* not found/
+    expect(a.activeTabId).toBeNull();                        // stale id forgotten
+  }, 60_000);
+
+  it("activeTabId reflects a tab reaped externally (returns null, no throw)", async () => {
+    const a = new BrowserSession(mgr);
+    const info = await a.navigate(fixtureUrl("article.html"));
+    expect(a.activeTabId).toBe(info.tab_id);
+    await mgr.closeTab(info.tab_id);   // closed directly on the shared manager
+    expect(a.activeTabId).toBeNull();
+  }, 60_000);
 });

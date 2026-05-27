@@ -476,6 +476,13 @@ export class BrowserManager {
     return page;
   }
 
+  /** Whether a tab id is still open. Lets a per-session view detect that its
+   *  remembered active tab was closed elsewhere (other session / TTL sweeper)
+   *  without provoking a "Tab not found" throw. */
+  hasTab(tabId: string): boolean {
+    return this.tabs.has(tabId);
+  }
+
   async settle(page: Page): Promise<void> {
     await page.waitForLoadState("domcontentloaded").catch(() => {});
     await new Promise<void>((resolve) => {

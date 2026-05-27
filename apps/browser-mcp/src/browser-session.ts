@@ -28,8 +28,19 @@ export class BrowserSession {
 
   /** Resolve to a concrete tab id for this session, or throw. */
   private resolve(tabId?: string): string {
-    const id = tabId ?? this.currentTabId;
+    // An explicit tab_id is the caller's responsibility — if it's gone, let the
+    // manager surface a precise "Tab <id> not found".
+    if (tabId) return tabId;
+    const id = this.currentTabId;
     if (!id) throw new Error("No active tab. Call browser_open first.");
+    // Our remembered active tab may have been closed by another session on this
+    // profile or reaped by the TTL sweeper — neither path syncs back to us. Heal
+    // the stale id and report a clean "no active tab" rather than the confusing
+    // "Tab <id> not found" the manager would otherwise throw.
+    if (!this.mgr.hasTab(id)) {
+      this.currentTabId = null;
+      throw new Error("No active tab. Call browser_open first.");
+    }
     return id;
   }
 
@@ -48,7 +59,11 @@ export class BrowserSession {
     this.mgr.getPage(tabId); // validate it exists (throws otherwise)
     this.currentTabId = tabId;
   }
-  get activeTabId(): string | null { return this.currentTabId; }
+  get activeTabId(): string | null {
+    // Forget a tab that was closed elsewhere so the reported active tab stays truthful.
+    if (this.currentTabId && !this.mgr.hasTab(this.currentTabId)) this.currentTabId = null;
+    return this.currentTabId;
+  }
   getPage(tabId?: string) { return this.mgr.getPage(this.resolve(tabId)); }
 
   async openVisible(url: string): Promise<TabInfo> {
