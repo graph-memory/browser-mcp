@@ -1,12 +1,14 @@
 import { z } from "zod";
 import type { BrowserApi, ConsoleLevel } from "../browser.js";
+import { config } from "../config.js";
 
 export const consoleSchema = {
   tab_id: z.string().optional()
     .describe("Only entries from this tab. Omit to see all tabs in the profile."),
   level: z.enum(["log", "info", "warn", "error", "debug", "pageerror"]).optional()
     .describe("Filter by level. 'pageerror' = uncaught exceptions on the page."),
-  limit: z.number().int().positive().max(500).default(100)
+  // Cap follows the console ring capacity (BROWSER_MCP_CONSOLE_RING).
+  limit: z.number().int().positive().max(config.consoleRingCap).default(Math.min(100, config.consoleRingCap))
     .describe("Keep at most this many of the most recent matching entries (printed oldest-first)."),
   text_regex: z.string().max(512).optional()
     .describe("JS regex; only messages whose text matches are returned. Compiled and run on the server — keep it simple."),

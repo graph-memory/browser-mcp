@@ -37,7 +37,7 @@ export type NetLogEntry = {
   failed?: string;
 };
 
-const NET_RING_CAP = 500;
+const NET_RING_CAP = config.netRingCap;
 
 export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug" | "pageerror";
 export type ConsoleLogEntry = {
@@ -48,7 +48,7 @@ export type ConsoleLogEntry = {
   location?: string;
 };
 
-const CONSOLE_RING_CAP = 500;
+const CONSOLE_RING_CAP = config.consoleRingCap;
 
 export type NetBodyEntry = {
   ts: number;
@@ -62,8 +62,8 @@ export type NetBodyEntry = {
 
 // Response bodies are heavy, so we keep only a small ring of recent texty
 // responses, each capped in size. Binary / oversized responses are skipped.
-const BODY_RING_CAP = 50;
-const BODY_MAX_BYTES = 256 * 1024;
+const BODY_RING_CAP = config.bodyRingCap;
+const BODY_MAX_BYTES = config.bodyMaxBytes;
 
 export class BrowserManager {
   private context: BrowserContext | null = null;

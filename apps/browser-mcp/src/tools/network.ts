@@ -1,10 +1,13 @@
 import { z } from "zod";
 import type { BrowserApi } from "../browser.js";
+import { config } from "../config.js";
 
 export const networkSchema = {
   tab_id: z.string().optional()
     .describe("Only entries from this tab. Omit to see all tabs in the profile."),
-  limit: z.number().int().positive().max(500).default(100)
+  // Cap follows the network ring capacity (BROWSER_MCP_NET_RING) — can't return
+  // more than the ring holds.
+  limit: z.number().int().positive().max(config.netRingCap).default(Math.min(100, config.netRingCap))
     .describe("Keep at most this many of the most recent matching entries (printed oldest-first)."),
   url_regex: z.string().max(512).optional()
     .describe("JS regex; only URLs matching are returned. Compiled and run on the server against recent URLs — keep the pattern simple (no need for catastrophic-backtracking constructs)."),

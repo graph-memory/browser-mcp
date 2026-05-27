@@ -773,6 +773,19 @@ All flags are optional — loopback-only defaults work out of the box. Priority:
 | `BROWSER_MCP_READ_BODY_TIMEOUT_MS` | `10000` | Wall-clock cap on HTTP body read (slow-loris) |
 | `BROWSER_MCP_NO_NETWORK_BODY` | `0` | `1` disables passive response-body capture for `browser_network_body` |
 
+### Resource tuning (env only)
+
+In-memory ring capacities, per profile. Bigger = deeper history at higher RAM
+cost. The `browser_network_log` / `browser_console_log` `limit` argument is
+capped at the matching ring size (you can't read back more than the ring holds).
+
+| Env | Default | Effect |
+|---|---|---|
+| `BROWSER_MCP_NET_RING` | `500` | Network-log ring capacity (`browser_network_log`) |
+| `BROWSER_MCP_CONSOLE_RING` | `500` | Console-log ring capacity (`browser_console_log`) |
+| `BROWSER_MCP_BODY_RING` | `50` | Captured-response-body ring capacity (`browser_network_body`) |
+| `BROWSER_MCP_BODY_MAX_BYTES` | `262144` | Max size per captured response body (256 KiB); larger bodies are skipped |
+
 `browser-mcp --help` prints the CLI list.
 
 ---

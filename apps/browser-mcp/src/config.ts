@@ -131,4 +131,12 @@ export const config = {
   // so don't enable it by default.
   corsOrigin: str(opts.corsOrigin, process.env.BROWSER_MCP_CORS_ORIGIN, ""),
   maxSessions: num(opts.maxSessions, process.env.BROWSER_MCP_MAX_SESSIONS, 50),
+
+  // In-memory ring capacities (per profile). Advanced memory/history tuning —
+  // env-only, no CLI flag. Bigger = deeper history at higher RAM cost. The
+  // network_log / console_log `limit` schema caps are derived from these.
+  netRingCap: num(undefined, process.env.BROWSER_MCP_NET_RING, 500),
+  consoleRingCap: num(undefined, process.env.BROWSER_MCP_CONSOLE_RING, 500),
+  bodyRingCap: num(undefined, process.env.BROWSER_MCP_BODY_RING, 50),
+  bodyMaxBytes: num(undefined, process.env.BROWSER_MCP_BODY_MAX_BYTES, 256 * 1024),
 } as const;
