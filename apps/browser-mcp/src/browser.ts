@@ -39,6 +39,17 @@ export type NetLogEntry = {
 
 const NET_RING_CAP = 500;
 
+export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug" | "pageerror";
+export type ConsoleLogEntry = {
+  ts: number;
+  tab_id: string;
+  level: ConsoleLevel;
+  text: string;
+  location?: string;
+};
+
+const CONSOLE_RING_CAP = 500;
+
 export class BrowserManager {
   private context: BrowserContext | null = null;
   /**
@@ -54,6 +65,9 @@ export class BrowserManager {
   private netLog: NetLogEntry[] = [];
   private netLogHead = 0;          // next insert index (ring)
   private netLogSize = 0;          // current length (<= NET_RING_CAP)
+  private consoleLog: ConsoleLogEntry[] = [];
+  private consoleHead = 0;
+  private consoleSize = 0;
   private reqStart = new WeakMap<object, { ts: number; tab_id: string }>();
   private snapshotStore = new Map<string, AxNode>();
   private currentTabId: string | null = null;
@@ -195,6 +209,26 @@ export class BrowserManager {
       });
     });
 
+    // Console + uncaught page errors → console ring buffer.
+    page.on("console", (msg) => {
+      const t = msg.type();
+      const level: ConsoleLevel =
+        t === "warning" ? "warn"
+        : (t === "error" || t === "info" || t === "debug" || t === "log") ? t
+        : "log";
+      const loc = msg.location();
+      this.pushConsole({
+        ts: Date.now(),
+        tab_id: id,
+        level,
+        text: msg.text(),
+        ...(loc?.url && { location: `${loc.url}:${loc.lineNumber ?? 0}:${loc.columnNumber ?? 0}` }),
+      });
+    });
+    page.on("pageerror", (err) => {
+      this.pushConsole({ ts: Date.now(), tab_id: id, level: "pageerror", text: err.message });
+    });
+
     page.on("close", () => {
       this.tabs.delete(id);
       this.pageToId.delete(page);
@@ -205,6 +239,43 @@ export class BrowserManager {
       }
     });
     return id;
+  }
+
+  private pushConsole(e: ConsoleLogEntry): void {
+    if (this.consoleSize < CONSOLE_RING_CAP) {
+      this.consoleLog.push(e);
+      this.consoleSize++;
+    } else {
+      this.consoleLog[this.consoleHead] = e;
+    }
+    this.consoleHead = (this.consoleHead + 1) % CONSOLE_RING_CAP;
+  }
+
+  /** Read console entries in chronological order, optionally filtered. */
+  readConsoleLog(opts: {
+    tabId?: string;
+    level?: ConsoleLevel;
+    limit?: number;
+    textRegex?: string;
+  }): { entries: ConsoleLogEntry[]; total: number } {
+    const ordered: ConsoleLogEntry[] = [];
+    if (this.consoleSize < CONSOLE_RING_CAP) {
+      ordered.push(...this.consoleLog);
+    } else {
+      for (let i = 0; i < CONSOLE_RING_CAP; i++) {
+        ordered.push(this.consoleLog[(this.consoleHead + i) % CONSOLE_RING_CAP]);
+      }
+    }
+    let re: RegExp | undefined;
+    if (opts.textRegex) re = new RegExp(opts.textRegex);
+    const filtered = ordered.filter((e) => {
+      if (opts.tabId && e.tab_id !== opts.tabId) return false;
+      if (opts.level && e.level !== opts.level) return false;
+      if (re && !re.test(e.text)) return false;
+      return true;
+    });
+    const limit = opts.limit ?? 100;
+    return { entries: filtered.slice(-limit), total: this.consoleSize };
   }
 
   private pushNet(e: NetLogEntry): void {

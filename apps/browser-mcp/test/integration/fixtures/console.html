@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Console test</title></head>
+<body>
+  <h1>Console</h1>
+  <script>
+    console.log("hello log");
+    console.info("an info line");
+    console.warn("a warning line");
+    console.error("boom error happened");
+    console.debug("debug detail");
+    // Uncaught error → 'pageerror'
+    setTimeout(() => { throw new Error("uncaught boom"); }, 0);
+  </script>
+</body>
+</html>

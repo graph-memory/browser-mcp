@@ -36,6 +36,7 @@ import { uploadSchema, makeUploadHandler } from "./tools/upload.js";
 import { downloadSchema, makeDownloadHandler } from "./tools/download.js";
 import { cookiesSchema, makeCookiesHandler } from "./tools/cookies.js";
 import { networkSchema, makeNetworkHandler } from "./tools/network.js";
+import { consoleSchema, makeConsoleHandler } from "./tools/console.js";
 import {
   pressSchema, makePressHandler,
   hoverSchema, makeHoverHandler,
@@ -325,6 +326,14 @@ export function buildServer(browser: BrowserManager): McpServer {
       "Useful to debug SPA behaviour: what API calls fired, what failed, what returned 4xx/5xx.",
     inputSchema: networkSchema,
   }, withLog("browser_network_log", makeNetworkHandler(browser)));
+
+  server.registerTool("browser_console_log", {
+    description:
+      "Inspect recent browser console output (ring buffer of last 500 across all tabs in the profile): " +
+      "console.log/info/warn/error/debug plus uncaught page errors (level 'pageerror'). " +
+      "Filter by tab_id, level, or text_regex. Great for debugging SPA errors the UI swallowed.",
+    inputSchema: consoleSchema,
+  }, withLog("browser_console_log", makeConsoleHandler(browser)));
 
   server.registerTool("browser_configure", {
     description:
