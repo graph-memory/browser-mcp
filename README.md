@@ -217,7 +217,7 @@ browser_cookies       { action: "get", urls: ["https://example.com/"] }
   Hard cap on concurrent sessions (`max_sessions`, default 50).
 - **Multi-arch Docker image.** linux/amd64 + linux/arm64, non-root `browser`
   user, `tini` as PID 1 for zombie reaping, healthcheck wired to `/health`.
-- **Full test suite.** 425 tests (unit + integration against a real headless
+- **Full test suite.** 433 tests (unit + integration against a real headless
   Chromium) covering every tool handler, the HTTP server (auth/CSRF/session
   lifecycle), and the AX-tree pipeline. See [Testing](#testing).
 
@@ -1079,7 +1079,7 @@ URLs visited, cookies, or any page content.
 ## Testing
 
 ```bash
-npm test                  # run 425 tests once (vitest)
+npm test                  # run 433 tests once (vitest)
 npm run test:watch        # watch mode
 npm run test:coverage     # run + coverage report under coverage/
 npm run test:integration  # Playwright-backed tests only
@@ -1187,7 +1187,7 @@ cd browser-mcp
 npm install         # installs all workspaces, hoists node_modules to root
 npm run dev         # run with tsx (no build step)
 npm run build       # compile TypeScript to apps/browser-mcp/dist/
-npm test            # full test suite (425 tests)
+npm test            # full test suite (433 tests)
 npm run test:coverage
 ```
 
