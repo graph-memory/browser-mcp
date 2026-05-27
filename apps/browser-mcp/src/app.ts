@@ -93,6 +93,33 @@ export function redactToolArgs(name: string, args: unknown): unknown {
       return Array.isArray(a.files) ? { ...a, files: `«${a.files.length} files»` } : a;
     case "browser_download_wait":
       return "save_to" in a ? { ...a, save_to: "«redacted»" } : a;
+    case "browser_fill_form":
+      // fields[].value carries typed text (passwords/PII) — same as browser_type.text.
+      if (Array.isArray(a.fields)) {
+        return {
+          ...a,
+          fields: a.fields.map((f) =>
+            f && typeof f === "object" && "value" in (f as Record<string, unknown>)
+              ? { ...(f as Record<string, unknown>), value: "«redacted»" }
+              : f,
+          ),
+        };
+      }
+      return a;
+    case "browser_configure":
+      // extra_headers values can be auth tokens (Authorization: Bearer …).
+      if (a.extra_headers && typeof a.extra_headers === "object") {
+        const redacted = Object.fromEntries(
+          Object.keys(a.extra_headers as Record<string, unknown>).map((k) => [k, "«redacted»"]),
+        );
+        return { ...a, extra_headers: redacted };
+      }
+      return a;
+    case "browser_storage":
+      // value can be a session token; key kept for debuggability.
+      return "value" in a ? { ...a, value: "«redacted»" } : a;
+    case "browser_handle_dialog":
+      return "prompt_text" in a ? { ...a, prompt_text: "«redacted»" } : a;
     default:
       return a;
   }

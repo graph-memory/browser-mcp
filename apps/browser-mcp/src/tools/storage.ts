@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { BrowserApi } from "../browser.js";
+import { config } from "../config.js";
+import { truncate } from "../render.js";
 
 export const storageSchema = {
   action: z.enum(["get", "set", "remove", "clear"])
@@ -32,7 +34,7 @@ export function makeStorageHandler(browser: BrowserApi) {
       const entries = Object.entries(result as Record<string, string | null>);
       if (entries.length === 0) return { content: [{ type: "text" as const, text: `(${a.area}Storage empty)` }] };
       const body = entries.map(([k, v]) => `${k} = ${v}`).join("\n");
-      return { content: [{ type: "text" as const, text: body }] };
+      return { content: [{ type: "text" as const, text: truncate(body, config.maxChars) }] };
     }
     const verb = a.action === "set" ? `Set ${a.key}` : a.action === "remove" ? `Removed ${a.key}` : "Cleared";
     return { content: [{ type: "text" as const, text: `${verb} in ${a.area}Storage` }] };

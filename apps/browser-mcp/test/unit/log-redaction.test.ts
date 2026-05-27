@@ -71,6 +71,56 @@ describe("redactToolArgs", () => {
     expect(out.action).toBe("click");
   });
 
+  it("browser_fill_form — redacts each field's typed value, keeps the rest", () => {
+    const out = redactToolArgs("browser_fill_form", {
+      fields: [
+        { target: "Email", value: "a@b.co" },
+        { target: "Password", value: "MyS3cr3t" },
+        { target: "Agree", checked: true },
+        { target: "Plan", options: ["pro"] },
+      ],
+      submit: true,
+    }) as { fields: Array<Record<string, unknown>>; submit: boolean };
+    expect(out.fields[0].value).toBe("«redacted»");
+    expect(out.fields[0].target).toBe("Email");
+    expect(out.fields[1].value).toBe("«redacted»");
+    expect(out.fields[2].checked).toBe(true); // non-value fields untouched
+    expect(out.fields[3].options).toEqual(["pro"]);
+    expect(out.submit).toBe(true);
+  });
+
+  it("browser_configure — redacts extra_headers values, keeps names", () => {
+    const out = redactToolArgs("browser_configure", {
+      locale: "en-US",
+      extra_headers: { Authorization: "Bearer sk-secret", "X-Trace": "abc" },
+    }) as { locale: string; extra_headers: Record<string, string> };
+    expect(out.locale).toBe("en-US");
+    expect(out.extra_headers.Authorization).toBe("«redacted»");
+    expect(out.extra_headers["X-Trace"]).toBe("«redacted»");
+  });
+
+  it("browser_configure — untouched when no extra_headers", () => {
+    const out = redactToolArgs("browser_configure", { viewport_preset: "mobile" });
+    expect(out).toEqual({ viewport_preset: "mobile" });
+  });
+
+  it("browser_storage — redacts value, keeps key/action", () => {
+    const out = redactToolArgs("browser_storage", {
+      action: "set", area: "local", key: "token", value: "eyJ…secret",
+    }) as Record<string, unknown>;
+    expect(out.value).toBe("«redacted»");
+    expect(out.key).toBe("token");
+    expect(out.action).toBe("set");
+  });
+
+  it("browser_handle_dialog — redacts prompt_text", () => {
+    const out = redactToolArgs("browser_handle_dialog", {
+      action: "accept", prompt_text: "secret answer",
+    }) as Record<string, unknown>;
+    expect(out.prompt_text).toBe("«redacted»");
+    expect(out.action).toBe("accept");
+  });
+
   it("unrelated tool — passes through untouched", () => {
     const args = { url: "https://example.com", tab_id: "abc" };
     expect(redactToolArgs("browser_open", args)).toEqual(args);
