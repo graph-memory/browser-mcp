@@ -1,0 +1,40 @@
+name: Publish browser-client to npm
+
+# Triggered by tags of the form `client-vX.Y.Z` so client releases are
+# disjoint from server tags (`vX.Y.Z`, handled by publish.yml). Manual
+# dispatch is available for re-runs.
+on:
+  push:
+    tags: ['client-v*']
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # required for npm provenance attestation
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # --ignore-scripts skips the root postinstall (`npx playwright install
+      # chromium`) — the client doesn't need Chromium, so we save ~minutes
+      # and a few hundred MB.
+      - run: npm ci --ignore-scripts
+
+      # Gate the release on the client's own test suite (mocked fetch, fast).
+      - run: npm run build -w @graphmemory/browser-client
+      - run: npm test  -w @graphmemory/browser-client
+
+      # `npm publish` triggers the package's `prepack` script (cp LICENSE) and
+      # `prepublishOnly` (build again, no-op cache hit) before the tarball is
+      # assembled. `--access=public` is required for the first publish of a
+      # scoped package (and a safe no-op after).
+      - run: npm publish -w @graphmemory/browser-client --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

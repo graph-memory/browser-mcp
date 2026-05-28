@@ -1,3 +1,5 @@
 dist/
 node_modules/
 *.tsbuildinfo
+# Copied from the repo root by `prepack` for the npm tarball; not tracked.
+LICENSE

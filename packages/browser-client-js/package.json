@@ -13,12 +13,15 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "gen": "openapi-typescript ../../apps/browser-mcp/openapi.json -o src/generated/openapi.ts"
+    "gen": "openapi-typescript ../../apps/browser-mcp/openapi.json -o src/generated/openapi.ts",
+    "prepublishOnly": "npm run build",
+    "prepack": "cp ../../LICENSE LICENSE"
   },
   "engines": {
     "node": ">=18"
@@ -31,6 +34,11 @@
     "rest",
     "client"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/graph-memory/browser-mcp.git",
+    "directory": "packages/browser-client-js"
+  },
   "license": "Elastic-2.0",
   "devDependencies": {
     "openapi-typescript": "^7.13.0"
