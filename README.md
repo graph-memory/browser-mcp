@@ -190,6 +190,11 @@ browser_cookies       { action: "get", urls: ["https://example.com/"] }
   and ARIA landmark chrome. Automatic on text/html (pages would otherwise be
   drowned in boilerplate); off on markdown (Readability already picks the
   article).
+- **Stateless REST API for scripts.** Besides MCP, `/api/v1/tools/<tool>?profile=<name>`
+  exposes the same 36 tools over plain JSON POST. Scripts in any language drive the
+  same live browser an MCP agent uses, with **structured JSON** (not LLM-formatted
+  text) in `data`. OpenAPI 3.1 at `/api/v1/openapi.json`; a Node JS/TS client lives
+  in `packages/browser-client-js/`. See [REST API](#rest-api-for-scripts).
 - **Network ring buffer.** 500 most recent requests per profile, across all
   tabs. Filter by tab, URL regex, method, min_status, or failed_only.
   Surfaces the 4xx/5xx the UI quietly swallowed.
@@ -215,9 +220,10 @@ browser_cookies       { action: "get", urls: ["https://example.com/"] }
 - **Refuse-to-start safety.** Bound to a non-loopback interface without an
   API key? Exits with code 2 and an explanation. Override with
   `--allow-insecure` if you know what you're doing.
-- **Session + tab TTL.** Idle MCP sessions reaped after `session_ttl`
-  (default 30 min); inactive tabs auto-closed after `tab_ttl` (default 10 min).
-  Hard cap on concurrent sessions (`max_sessions`, default 50).
+- **Session + tab TTL.** Idle MCP sessions and REST profile holders are both
+  reaped after `session_ttl` (default 30 min); inactive tabs auto-closed after
+  `tab_ttl` (default 10 min). Hard cap on concurrent sessions/holders
+  (`max_sessions`, default 50; shared across both surfaces).
 - **Multi-arch Docker image.** linux/amd64 + linux/arm64, non-root `browser`
   user, `tini` as PID 1 for zombie reaping, healthcheck wired to `/health`.
 - **Full test suite.** 470 tests (unit + integration against a real headless
@@ -782,7 +788,8 @@ body. A tool that ran — even one that "failed" like a `browser_expect` asserti
   "content": [{ "type": "text", "text": "HTTP 200\nURL: …" }] }
 
 // 200 — tool-level failure (ok:false, not an HTTP error)
-{ "ok": false, "error": { "message": "FAIL visible …" }, "data": { "ok": false, "actual": "hidden" } }
+{ "ok": false, "error": { "message": "FAIL visible …" },
+  "data": { "ok": false, "assertion": "visible", "expected": "#login", "actual": "hidden" } }
 ```
 
 Non-2xx is reserved for transport problems: **400** invalid args (zod `issues` included) or bad
@@ -800,8 +807,9 @@ curl -s -XPOST 'http://127.0.0.1:7777/api/v1/tools/browser_read?profile=work' \
 # with auth: add  -H 'authorization: Bearer <key>'
 ```
 
-**JS/TS client.** A tiny dependency-free client lives in
-[`packages/browser-client-js`](packages/browser-client-js/) (`@graphmemory/browser-client`):
+**JS/TS client.** A tiny **zero-runtime-dependency** client lives in
+[`packages/browser-client-js`](packages/browser-client-js/) (`@graphmemory/browser-client`),
+with tool/argument types generated from the OpenAPI spec:
 
 ```ts
 import { BrowserClient } from "@graphmemory/browser-client";
@@ -888,9 +896,10 @@ capped at the matching ring size (you can't read back more than the ring holds).
 ### Process topology
 
 browser-mcp is one Node process. Each named profile lazily launches its own
-Chromium (`launchPersistentContext`) on first use. Multiple concurrent MCP
-sessions on the same profile share that context. When the last session on a
-profile expires, the context shuts down.
+Chromium (`launchPersistentContext`) on first use. Concurrent users of the same
+profile — multiple MCP sessions and/or the REST profile holder — share that
+context. The context shuts down only when neither an MCP session nor a REST
+holder still references the profile (ref-count).
 
 ### HTTP layer
 
@@ -1052,8 +1061,8 @@ SIGINT/SIGTERM triggers:
 ```
 1. stop accepting new HTTP connections (httpServer.close)
 2. clear session reaper interval
-3. close all transports + McpServer instances
-4. shutdown each BrowserManager (closes Chromium)
+3. close all MCP transports + McpServer instances (REST holders have none)
+4. shutdown each unique BrowserManager (closes Chromium)
 5. process.exit(0)
 ```
 
@@ -1062,9 +1071,9 @@ SIGINT/SIGTERM triggers:
 ## Security model
 
 browser-mcp drives a real Chromium on your machine — anyone who can reach
-`/mcp` can visit arbitrary URLs, exfiltrate logged-in session cookies, solve
-CAPTCHAs in your name, and (without the guards below) read arbitrary local
-files. The defaults are chosen so this can't happen by accident:
+`/mcp` or `/api` can visit arbitrary URLs, exfiltrate logged-in session
+cookies, solve CAPTCHAs in your name, and (without the guards below) read
+arbitrary local files. The defaults are chosen so this can't happen by accident:
 
 ### Network-level guards
 
@@ -1072,14 +1081,14 @@ files. The defaults are chosen so this can't happen by accident:
   LAN IP) AND no API key set? Exit code 2 with a loud error. Override with
   `--allow-insecure` if you understand the risk (e.g. isolated VM,
   intra-Docker-network).
-- **CSRF defense.** `/mcp` POSTs must carry `Content-Type: application/json`
-  (not a CORS-simple type — browsers must preflight and we don't answer
-  OPTIONS). If an `Origin` header is present, it must match
-  `BROWSER_MCP_CORS_ORIGIN` (default **empty** — only native clients like
-  curl and Claude Code, which send no `Origin`, are allowed). The literal
-  string `null` in the allowlist opts in to sandboxed-iframe / `file://`
-  pages and is a CSRF vector on loopback without auth — it's **not** enabled
-  by default.
+- **CSRF defense.** POSTs to `/mcp` and `/api` must carry
+  `Content-Type: application/json` (not a CORS-simple type — browsers must
+  preflight and we don't answer OPTIONS). If an `Origin` header is present,
+  it must match `BROWSER_MCP_CORS_ORIGIN` (default **empty** — only native
+  clients like curl, Claude Code, and Node-side scripts, which send no
+  `Origin`, are allowed). The literal string `null` in the allowlist opts in
+  to sandboxed-iframe / `file://` pages and is a CSRF vector on loopback
+  without auth — it's **not** enabled by default.
 - **Body size + slow-loris.** 1 MB per request max; the full body must arrive
   within 10 s (or the socket is torn down). No slow-drip DoS.
 - **Timing-safe auth.** API key comparison uses `crypto.timingSafeEqual` so
@@ -1147,8 +1156,9 @@ refuse-to-start check kicks in without one.
 ### Health endpoint
 
 `GET /health` returns JSON with status, uptime, session/profile counts, and a
-summary of active config. Unauthenticated, safe to probe. Does not reveal
-URLs visited, cookies, or any page content.
+summary of active config. `sessions` counts both MCP sessions and active REST
+profile holders. Unauthenticated, safe to probe. Does not reveal URLs visited,
+cookies, or any page content.
 
 ```json
 {
@@ -1284,8 +1294,8 @@ npm run test:coverage
 Layout:
 
 ```
-apps/browser-mcp/   the MCP server (src/, test/, Dockerfile, bin)
-packages/           reserved for future shared libs
+apps/browser-mcp/             the server (src/, test/, Dockerfile, bin)
+packages/browser-client-js/   @graphmemory/browser-client (REST client)
 ```
 
 ### Release process
