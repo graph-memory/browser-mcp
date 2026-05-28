@@ -16,7 +16,7 @@ import { TOOLS } from "./registry.js";
  */
 
 // Mirrors the package version. The release/version bump is handled separately.
-const API_VERSION = "0.2.0";
+const API_VERSION = "0.3.0";
 
 type JsonObject = Record<string, unknown>;
 

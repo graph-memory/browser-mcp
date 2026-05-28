@@ -1,6 +1,6 @@
 import { Command } from "commander";
 
-const pkg = { name: "browser-mcp", version: "0.2.0" };
+const pkg = { name: "browser-mcp", version: "0.3.0" };
 
 const program = new Command()
   .name(pkg.name)

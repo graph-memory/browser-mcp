@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "browser-mcp REST API",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Stateless REST/JSON surface over the same live browser as the MCP server. Each call is an independent POST; `?profile=` selects the shared browser to drive (the same profile an MCP agent uses). Pass an explicit `tab_id` to target a specific tab."
   },
   "servers": [

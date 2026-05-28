@@ -17,7 +17,7 @@ import { logInfo, logError } from "./log.js";
 export { redactToolArgs } from "./tool-runtime.js";
 
 export function buildServer(browser: BrowserApi): McpServer {
-  const server = new McpServer({ name: "browser-mcp", version: "0.2.0" });
+  const server = new McpServer({ name: "browser-mcp", version: "0.3.0" });
 
   // Single source of truth: register every tool from the shared registry.
   for (const tool of TOOLS) {
