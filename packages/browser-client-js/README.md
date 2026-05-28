@@ -1,8 +1,8 @@
 # @graphmemory/browser-client
 
-A tiny, **dependency-free** JS/TS client for the [browser-mcp](../../README.md) stateless
-REST API (`/api/v1`). Drive the *same live browser* an MCP agent uses — from a plain Node script —
-and get **structured JSON** back, without the MCP handshake.
+A tiny JS/TS client for the [browser-mcp](../../README.md) stateless REST API (`/api/v1`) —
+**zero runtime dependencies** (uses the global `fetch`). Drive the *same live browser* an MCP
+agent uses, from a plain Node script, and get **structured JSON** back without the MCP handshake.
 
 Node 18+ (uses the global `fetch`). Targeted at server-side scripts; for browser-tab usage the
 server needs a matching `--cors-origin` and CORS preflight support (not provided by default).
@@ -44,9 +44,12 @@ network log. Tabs are shared and addressable; pass an explicit `tab_id` to act o
 (your "active tab" is independent of the agent's):
 
 ```ts
-const { data } = await b.tool("browser_tabs_list", {});
-const tabId = data.tabs[0].tab_id;
-await b.read({ tab_id: tabId });
+type TabsData = { tabs: Array<{ tab_id: string; title: string; url: string }>; active: string | null };
+const tabs = await b.tabsList();
+if (tabs.ok) {
+  const tabId = (tabs.data as TabsData).tabs[0].tab_id;   // response `data` is typed as `unknown`
+  await b.read({ tab_id: tabId });                         //   — per-tool output schemas aren't in OpenAPI v1
+}
 ```
 
 ## Error handling
@@ -79,17 +82,19 @@ try {
   is derived from the same schema (e.g. `open` accepts `Omit<ToolArgs<"browser_open">, "url">`).
 - `listTools()` → `{ tools: [{ name, description }] }`
 - `openapi()` → the OpenAPI 3.1 document.
-- `releaseProfile(profile?)` → proactively close a profile's browser (else it's reaped on idle TTL).
+- `releaseProfile(profile?)` → release the profile's REST holder. The browser is shut down only
+  if no MCP session still holds it (ref-count); otherwise just the REST holder is dropped.
 
-Errors: tool-level failures resolve with `{ ok: false }` (HTTP 200). Transport failures (400/401/
-404/403/415/503) throw `BrowserClientError` with `.status` and `.body`.
+For the error model see [Error handling](#error-handling) above.
 
 ## Tool catalogue
 
-All 36 tools are reachable through `b.tool(name, args)`. Use `b.listTools()` for the live
-catalogue with descriptions, or [`GET /api/v1/openapi.json`](../../apps/browser-mcp/openapi.json)
-for parameter schemas. The [server README](../../README.md#tools-reference) has the full reference
-with parameter tables.
+All 36 tools are reachable through `b.tool(name, args)`. Authoritative sources for parameter shapes:
+
+- `b.listTools()` — live catalogue (names + descriptions).
+- `GET /api/v1/openapi.json` — served by the running server.
+- [`apps/browser-mcp/openapi.json`](../../apps/browser-mcp/openapi.json) — static artifact committed in the repo.
+- [server README → Tools reference](../../README.md#tools-reference) — prose tables with parameters and examples.
 
 **Navigation**
 | Tool | Purpose |
@@ -178,9 +183,26 @@ import type { ToolName, ToolArgs } from "@graphmemory/browser-client";
 type OpenArgs = ToolArgs<"browser_open">;  // { url: string; tab_id?: string }
 ```
 
+Misspelled tool names and bad arguments fail at compile time:
+
+```ts
+await b.tool("brwoser_open", { url: "..." });
+//           ~~~~~~~~~~~~~ ✗ TS2322: not assignable to ToolName
+
+await b.tool("browser_select_option", { target: "Country" });
+//                                    ~~~~~~~~~~~~~~~~~~~~ ✗ TS2741: missing 'values'
+
+await b.tool("browser_open", { url: "https://example.com", tabid: "t1" });
+//                                                         ~~~~~ ✗ TS2353: did you mean 'tab_id'?
+```
+
 To regenerate after the server adds/changes a tool:
 
 ```bash
-cd apps/browser-mcp && npm run openapi   # emits apps/browser-mcp/openapi.json
-cd ../../packages/browser-client-js && npm run gen   # regenerates src/generated/openapi.ts
+cd apps/browser-mcp && npm run openapi              # emits apps/browser-mcp/openapi.json
+cd ../../packages/browser-client-js && npm run gen  # regenerates src/generated/openapi.ts
 ```
+
+## License
+
+Elastic-2.0.
