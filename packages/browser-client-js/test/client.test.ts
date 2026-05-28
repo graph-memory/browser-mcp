@@ -26,7 +26,8 @@ describe("BrowserClient", () => {
   it("resolves with the envelope (ok:false) for a tool-level failure on HTTP 200", async () => {
     const f = mockFetch(200, { ok: false, error: { message: "boom" }, content: [] });
     const c = new BrowserClient({ baseUrl: "http://h", fetch: f as unknown as typeof fetch });
-    const r = await c.tool("browser_expect", {});
+    // browser_snapshot's args are all-optional, so {} satisfies the typed signature.
+    const r = await c.tool("browser_snapshot", {});
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.message).toBe("boom");
   });
@@ -54,6 +55,15 @@ describe("BrowserClient", () => {
     await c.read();
     const headers = (f.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
     expect(headers["authorization"]).toBeUndefined();
+  });
+
+  it("typed tool() — argument types are derived from the OpenAPI schema (codegen)", async () => {
+    const f = mockFetch(200, { ok: true, data: { selected: ["FR"] }, content: [] });
+    const c = new BrowserClient({ baseUrl: "http://h", fetch: f as unknown as typeof fetch });
+    // ToolArgs<"browser_select_option"> requires `target` and `values`; ToolName narrows the literal.
+    const r = await c.tool("browser_select_option", { target: "Country", values: ["FR"] });
+    expect(r.ok).toBe(true);
+    expect(JSON.parse((f.mock.calls[0][1] as RequestInit).body as string)).toEqual({ target: "Country", values: ["FR"] });
   });
 
   it("listTools and releaseProfile hit the right endpoints/methods", async () => {

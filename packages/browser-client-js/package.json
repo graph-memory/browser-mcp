@@ -17,7 +17,8 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen": "openapi-typescript ../../apps/browser-mcp/openapi.json -o src/generated/openapi.ts"
   },
   "engines": {
     "node": ">=18"
@@ -30,5 +31,8 @@
     "rest",
     "client"
   ],
-  "license": "Elastic-2.0"
+  "license": "Elastic-2.0",
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
+  }
 }

@@ -72,12 +72,34 @@ try {
 ## API
 
 - `new BrowserClient({ baseUrl, apiKey?, profile?, fetch? })`
-- `tool(name, args?, { profile? })` → `ToolEnvelope` — call any tool.
+- `tool<Name>(name, args?, { profile? })` → `ToolEnvelope` — call any tool. Both the tool name and
+  `args` are type-checked against the OpenAPI spec (see *Types* below).
 - Shortcuts: `open(url, opts?)`, `read(opts?)`, `click(target, opts?)`, `type(target, text, opts?)`,
-  `snapshot(opts?)`, `evaluate(expression, opts?)`, `tabsList(opts?)`.
+  `snapshot(opts?)`, `evaluate(expression, opts?)`, `tabsList(opts?)`. Each shortcut's `opts` type
+  is derived from the same schema (e.g. `open` accepts `Omit<ToolArgs<"browser_open">, "url">`).
 - `listTools()` → `{ tools: [{ name, description }] }`
-- `openapi()` → the OpenAPI 3.1 document (for typed codegen, e.g. `openapi-typescript`).
+- `openapi()` → the OpenAPI 3.1 document.
 - `releaseProfile(profile?)` → proactively close a profile's browser (else it's reaped on idle TTL).
 
-The full tool list, parameters, and the OpenAPI spec are served by the running server at
-`GET /api/v1/tools` and `GET /api/v1/openapi.json`.
+Errors: tool-level failures resolve with `{ ok: false }` (HTTP 200). Transport failures (400/401/
+404/403/415/503) throw `BrowserClientError` with `.status` and `.body`.
+
+## Types
+
+Argument types are generated from the server's OpenAPI spec by `openapi-typescript` — committed
+under `src/generated/openapi.ts`. The package exports:
+
+- `ToolName` — the union of all 36 tool names.
+- `ToolArgs<Name>` — the argument shape for a given tool, taken straight from the spec.
+
+```ts
+import type { ToolName, ToolArgs } from "@graphmemory/browser-client";
+type OpenArgs = ToolArgs<"browser_open">;  // { url: string; tab_id?: string }
+```
+
+To regenerate after the server adds/changes a tool:
+
+```bash
+cd apps/browser-mcp && npm run openapi   # emits apps/browser-mcp/openapi.json
+cd ../../packages/browser-client-js && npm run gen   # regenerates src/generated/openapi.ts
+```
