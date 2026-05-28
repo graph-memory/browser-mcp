@@ -84,6 +84,87 @@ try {
 Errors: tool-level failures resolve with `{ ok: false }` (HTTP 200). Transport failures (400/401/
 404/403/415/503) throw `BrowserClientError` with `.status` and `.body`.
 
+## Tool catalogue
+
+All 36 tools are reachable through `b.tool(name, args)`. Use `b.listTools()` for the live
+catalogue with descriptions, or [`GET /api/v1/openapi.json`](../../apps/browser-mcp/openapi.json)
+for parameter schemas. The [server README](../../README.md#tools-reference) has the full reference
+with parameter tables.
+
+**Navigation**
+| Tool | Purpose |
+|---|---|
+| `browser_open` | Open a URL in a new tab (or navigate an existing tab). |
+| `browser_back` / `browser_forward` / `browser_reload` | History navigation. |
+| `browser_open_visible` | Open a URL in a visible window for manual interaction (sign-in, CAPTCHA). |
+| `browser_scroll` | Scroll the current tab. |
+
+**Reading content**
+| Tool | Purpose |
+|---|---|
+| `browser_read` | Page as Markdown (default), text, or HTML; optional `selector` to scope. |
+| `browser_snapshot` | Accessibility tree (compact YAML/JSON; supports diffing via `store_as`/`diff_against`). |
+| `browser_find` | Search visible text; returns snippets + best-effort selectors. |
+| `browser_evaluate` | Run a JS expression in the page; returns the JSON-serialized result. |
+
+**Tabs**
+| Tool | Purpose |
+|---|---|
+| `browser_tabs_list` | List open tabs. |
+| `browser_tab_switch` | Make a tab active. |
+| `browser_tab_close` | Close a tab. |
+
+**Interacting**
+| Tool | Purpose |
+|---|---|
+| `browser_click` | Click an element (locators: text/role/label/placeholder/testid/selector). |
+| `browser_type` | Fill an input/textarea/contenteditable. |
+| `browser_press` | Press a key or chord (`Enter`, `Control+A`, …). |
+| `browser_hover` | Hover an element to reveal menus/tooltips. |
+| `browser_select_option` | Select option(s) in a native `<select>` by value/label/index. |
+| `browser_check` | Set a checkbox/radio (idempotent — unlike `click`). |
+| `browser_drag` | HTML5 drag-and-drop. |
+| `browser_fill_form` | Batch-fill multiple fields and optionally submit. |
+
+**Waiting & asserting**
+| Tool | Purpose |
+|---|---|
+| `browser_wait` | Wait for a selector state or a JS condition. |
+| `browser_expect` | Assert a condition (visible/text/value/url/title/count); retries until timeout. |
+
+**Capture & files**
+| Tool | Purpose |
+|---|---|
+| `browser_screenshot` | PNG screenshot (viewport or full page); base64 in the `content` block. |
+| `browser_save` | Save the page as PDF / MHTML / HTML to the **server's** filesystem. |
+| `browser_upload` | Upload file(s) to an `<input type="file">` (paths on the server). |
+| `browser_download_wait` | Trigger a download and capture the resulting file. |
+
+**Browser state (per profile)**
+| Tool | Purpose |
+|---|---|
+| `browser_cookies` | get / set / clear cookies in the profile. |
+| `browser_storage` | localStorage / sessionStorage get / set / remove / clear. |
+
+**Browser config & permissions**
+| Tool | Purpose |
+|---|---|
+| `browser_configure` | Viewport, UA, locale, color scheme, mobile preset, extra HTTP headers, … |
+| `browser_permissions` | Grant camera / microphone / geolocation / clipboard / notifications. |
+| `browser_set_geolocation` | Set the emulated coordinates (pair with `browser_permissions`). |
+| `browser_handle_dialog` | Policy for the next native `alert` / `confirm` / `prompt`. |
+
+**Network & console inspection**
+| Tool | Purpose |
+|---|---|
+| `browser_network_log` | Ring buffer of recent requests (filter by tab / URL regex / status / method). |
+| `browser_console_log` | Ring buffer of `console.log/info/warn/error/debug` + `pageerror`. |
+| `browser_network_body` | Captured response bodies (small JSON/text only, last 50). |
+
+> Tools that operate on the **server's filesystem** (`browser_save`, `browser_upload`,
+> `browser_download_wait`) read/write paths on the host running the daemon, not the script's
+> machine — sandboxed by the same IO guards as the MCP surface.
+
 ## Types
 
 Argument types are generated from the server's OpenAPI spec by `openapi-typescript` — committed
