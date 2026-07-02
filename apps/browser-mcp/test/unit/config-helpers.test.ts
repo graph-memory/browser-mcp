@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { str, num, bool, parseViewport } from "../../src/config.js";
+import { str, num, bool, list, parseViewport } from "../../src/config.js";
 
 describe("str", () => {
   it("prefers CLI over env over fallback", () => {
@@ -67,5 +67,29 @@ describe("parseViewport", () => {
     expect(parseViewport("1920")).toBeUndefined();
     expect(parseViewport("1920*1080")).toBeUndefined();
     expect(parseViewport("banana")).toBeUndefined();
+  });
+});
+
+describe("list", () => {
+  it("prefers CLI over env, splits on whitespace", () => {
+    expect(list("--a --b", "--c")).toEqual(["--a", "--b"]);
+    expect(list(undefined, "--c --d")).toEqual(["--c", "--d"]);
+  });
+
+  it("missing/empty input yields an empty array", () => {
+    expect(list(undefined, undefined)).toEqual([]);
+    expect(list("", "")).toEqual([]);
+    expect(list("   ", undefined)).toEqual([]);
+  });
+
+  it("collapses runs of whitespace and trims", () => {
+    expect(list("  --a\t\n  --b  ", undefined)).toEqual(["--a", "--b"]);
+  });
+
+  it("keeps comma-bearing args intact (splits only on whitespace)", () => {
+    expect(list("--disable-features=A,B --foo", undefined)).toEqual([
+      "--disable-features=A,B",
+      "--foo",
+    ]);
   });
 });

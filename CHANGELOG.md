@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0 — Chromium launch-arg passthrough + timezone emulation
+
+Three additive launch knobs for fingerprint / anti-bot tuning, all off by
+default (empty = no change to current behavior):
+
+- **`--args` / `BROWSER_MCP_ARGS`** — extra Chromium launch args appended to
+  Playwright's defaults, whitespace-separated (comma-bearing args like
+  `--disable-features=A,B` stay intact). E.g.
+  `--args "--disable-blink-features=AutomationControlled"`.
+- **`--ignore-default-args` / `BROWSER_MCP_IGNORE_DEFAULT_ARGS`** — named
+  Playwright default launch args to drop (e.g. `--enable-automation`).
+- **`--timezone` / `BROWSER_MCP_TIMEZONE`** — emulated IANA timezone
+  (`timezoneId`), so a proxied session reports a timezone consistent with the
+  exit IP's geo instead of leaking the host's.
+
+All three feed `launchPersistentContext`. New exported `list()` config helper
+(whitespace-split) with unit tests.
+
+**Dependencies:** playwright `1.60 → 1.61.1` (bump the Docker base image tag in
+lockstep — it pins the bundled browser revision); `nanoid`, `tsx`, `@types/node`
+patch bumps.
+
 ## 0.3.0 — Stateless REST API + OpenAPI, 11 new tools, per-session state, configurable resources
 
 **36 tools (25 → 36).** A second HTTP surface — `/api/v1/*` — exposes the

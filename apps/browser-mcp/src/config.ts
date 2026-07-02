@@ -1,6 +1,6 @@
 import { Command } from "commander";
 
-const pkg = { name: "browser-mcp", version: "0.3.0" };
+const pkg = { name: "browser-mcp", version: "0.4.0" };
 
 const program = new Command()
   .name(pkg.name)
@@ -13,6 +13,9 @@ const program = new Command()
   .option("--stealth", "Enable stealth plugin (default)")
   .option("--no-stealth", "Disable stealth plugin")
   .option("--channel <name>", "Chromium channel (chrome, msedge, etc.)")
+  .option("--args <list>", "Extra Chromium launch args, whitespace-separated (e.g. \"--disable-blink-features=AutomationControlled\")")
+  .option("--ignore-default-args <list>", "Whitespace-separated Playwright default launch args to drop (e.g. \"--enable-automation\")")
+  .option("--timezone <tz>", "Emulated timezone as an IANA name, e.g. Europe/Berlin")
   .option("--proxy <url>", "Proxy server URL")
   .option("--proxy-bypass <domains>", "Comma-separated domains to bypass proxy")
   .option("--proxy-username <user>", "Proxy auth username")
@@ -74,6 +77,16 @@ export function bool(cli: boolean | undefined, env: string | undefined, fallback
 }
 
 /**
+ * Split a whitespace-separated CLI/env string into a trimmed, non-empty list
+ * (e.g. Chromium launch args). Missing/empty input → empty array. Splits on
+ * whitespace, NOT commas, so a comma-bearing arg stays intact — e.g.
+ * "--disable-features=A,B" is one element. Exported for tests.
+ */
+export function list(cli: string | undefined, env: string | undefined): string[] {
+  return (cli ?? env ?? "").split(/\s+/).map((s) => s.trim()).filter(Boolean);
+}
+
+/**
  * Parse a WxH viewport string (e.g. "1920x1080"). Returns undefined for
  * missing or malformed input. Exported for tests.
  */
@@ -97,6 +110,15 @@ export const config = {
   stealth: bool(opts.stealth, process.env.BROWSER_MCP_STEALTH, true),
   channel: str(opts.channel, process.env.BROWSER_MCP_CHANNEL, "chrome"),
   javaScript: bool(opts.javascript, process.env.BROWSER_MCP_JAVASCRIPT, true),
+
+  // Raw Chromium launch tuning. `args` are appended to Playwright's defaults;
+  // `ignoreDefaultArgs` drops named defaults (both whitespace-separated lists).
+  // Empty = no change. Used for anti-bot fingerprint knobs, e.g.
+  // args="--disable-blink-features=AutomationControlled". `timezone` sets the
+  // emulated IANA timezone (aligns with a proxy's geo so it doesn't leak the host's).
+  args: list(opts.args, process.env.BROWSER_MCP_ARGS),
+  ignoreDefaultArgs: list(opts.ignoreDefaultArgs, process.env.BROWSER_MCP_IGNORE_DEFAULT_ARGS),
+  timezone: str(opts.timezone, process.env.BROWSER_MCP_TIMEZONE, ""),
 
   proxy: str(opts.proxy, process.env.BROWSER_MCP_PROXY, ""),
   proxyBypass: str(opts.proxyBypass, process.env.BROWSER_MCP_PROXY_BYPASS, ""),

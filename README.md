@@ -841,6 +841,9 @@ All flags are optional — loopback-only defaults work out of the box. Priority:
 | `--[no-]headless` | `BROWSER_MCP_HEADLESS` | `1` | `0` = visible |
 | `--[no-]stealth` | `BROWSER_MCP_STEALTH` | `1` | `playwright-extra` + stealth plugin |
 | `--channel` | `BROWSER_MCP_CHANNEL` | `chrome` | Chromium channel (`chrome`, `msedge`, `chromium`) |
+| `--args` | `BROWSER_MCP_ARGS` | — | extra Chromium launch args, whitespace-separated (e.g. `--disable-blink-features=AutomationControlled`) |
+| `--ignore-default-args` | `BROWSER_MCP_IGNORE_DEFAULT_ARGS` | — | Playwright default launch args to drop, whitespace-separated (e.g. `--enable-automation`) |
+| `--timezone` | `BROWSER_MCP_TIMEZONE` | — | emulated timezone, IANA name (e.g. `Europe/Berlin`); align with a proxy's geo |
 | `--[no-]javascript` | `BROWSER_MCP_JAVASCRIPT` | `1` | |
 | `--viewport` | `BROWSER_MCP_VIEWPORT` | `1280x900` | WxH |
 | `--device-scale-factor` | `BROWSER_MCP_DEVICE_SCALE_FACTOR` | `1` | |
