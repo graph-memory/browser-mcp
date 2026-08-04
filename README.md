@@ -1098,7 +1098,15 @@ arbitrary local files. The defaults are chosen so this can't happen by accident:
   token guessing doesn't benefit from short-circuit string comparison.
 - **Session cap.** `max_sessions` (default 50) prevents resource exhaustion.
 - **Profile-name regex.** `^[a-zA-Z0-9_-]{1,64}$` — enforced at the HTTP
-  layer, so `../../etc/passwd` can't escape the profile base directory.
+  layer, so a name that walks up the tree can't escape the profile base
+  directory.
+
+<!-- Do not spell out a traversal path (dot-dot segments followed by a system
+     file) anywhere in this README. `npm publish` sends the README as plain
+     text in the request body, Cloudflare blocks that request in front of the
+     npm registry, and npm reports it as a bare 403 that names neither the
+     README nor Cloudflare. -->
+
 
 ### Tool-level guards
 
