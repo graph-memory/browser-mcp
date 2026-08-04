@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # required for npm provenance attestation
+      id-token: write   # OIDC token for trusted publishing (and provenance)
     steps:
       - uses: actions/checkout@v6
 
@@ -21,6 +21,9 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          # setup-node caches by default since v5; a release build must not
+          # restore anything it did not produce itself.
+          package-manager-cache: false
 
       # --ignore-scripts skips the root postinstall (`npx playwright install
       # chromium`) — the client doesn't need Chromium, so we save ~minutes
@@ -33,8 +36,13 @@ jobs:
 
       # `npm publish` triggers the package's `prepack` script (cp LICENSE) and
       # `prepublishOnly` (build again, no-op cache hit) before the tarball is
-      # assembled. `--access=public` is required for the first publish of a
-      # scoped package (and a safe no-op after).
-      - run: npm publish -w @graphmemory/browser-client --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # assembled.
+      #
+      # Trusted publishing (OIDC): no NODE_AUTH_TOKEN, and npm attaches
+      # provenance on its own, so --provenance is redundant. --access public
+      # is gone too: it only matters for the first publish of a scoped
+      # package, and since 2026-07-31 npm treats setting package access as a
+      # management operation that a token cannot perform unattended.
+      # The trusted publisher on npmjs.com is pinned to this filename —
+      # renaming the file breaks the release until the config is updated.
+      - run: npm publish -w @graphmemory/browser-client

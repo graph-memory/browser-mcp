@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Lets the runner mint the OIDC token npm exchanges for a short-lived
+      # publish credential — the whole point of trusted publishing.
       id-token: write
     steps:
       - uses: actions/checkout@v6
@@ -17,11 +19,19 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          # setup-node caches by default since v5; a release build must not
+          # restore anything it did not produce itself.
+          package-manager-cache: false
       - run: npm ci --ignore-scripts
       # Gate releases on the full test suite so a broken tag never ships.
       - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm test
-      - run: npm publish -w @graphmemory/browser-mcp --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Trusted publishing (OIDC): no NODE_AUTH_TOKEN, and npm attaches
+      # provenance on its own, so --provenance is redundant. --access public
+      # is gone too: it only matters for the first publish of a scoped
+      # package, and since 2026-07-31 npm treats setting package access as a
+      # management operation that a token cannot perform unattended.
+      # The trusted publisher on npmjs.com is pinned to this filename —
+      # renaming the file breaks the release until the config is updated.
+      - run: npm publish -w @graphmemory/browser-mcp
