@@ -22,6 +22,12 @@ jobs:
           # setup-node caches by default since v5; a release build must not
           # restore anything it did not produce itself.
           package-manager-cache: false
+      # registry-url makes setup-node write `_authToken=${NODE_AUTH_TOKEN}`
+      # into the runner's .npmrc unconditionally. With no token in the
+      # environment that line still reads as configured auth, so npm can send
+      # an empty credential instead of the one it gets over OIDC. Drop the
+      # line and keep the registry pin.
+      - run: sed -i '/_authToken/d' "${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
       - run: npm ci --ignore-scripts
       # Gate releases on the full test suite so a broken tag never ships.
       - run: npx playwright install --with-deps chromium

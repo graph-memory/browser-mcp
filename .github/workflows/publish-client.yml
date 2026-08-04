@@ -25,6 +25,13 @@ jobs:
           # restore anything it did not produce itself.
           package-manager-cache: false
 
+      # registry-url makes setup-node write `_authToken=${NODE_AUTH_TOKEN}`
+      # into the runner's .npmrc unconditionally. With no token in the
+      # environment that line still reads as configured auth, so npm can send
+      # an empty credential instead of the one it gets over OIDC. Drop the
+      # line and keep the registry pin.
+      - run: sed -i '/_authToken/d' "${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+
       # --ignore-scripts skips the root postinstall (`npx playwright install
       # chromium`) — the client doesn't need Chromium, so we save ~minutes
       # and a few hundred MB.
