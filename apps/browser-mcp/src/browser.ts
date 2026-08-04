@@ -23,6 +23,14 @@ export function validateProfileName(name: string): string {
   return name;
 }
 
+/** Playwright's wording when the context or its browser is already gone. Matched narrowly:
+ *  a page-level "page has been closed" is a caller mistake, not a dead browser. */
+const CONTEXT_CLOSED_RE = /Target page, context or browser has been closed|Target closed|Browser has been closed/i;
+
+export function isContextClosedError(err: unknown): boolean {
+  return CONTEXT_CLOSED_RE.test(err instanceof Error ? err.message : String(err));
+}
+
 export type TabInfo = { tab_id: string; title: string; url: string; status?: number };
 
 export type NetLogEntry = {
@@ -163,6 +171,17 @@ export class BrowserManager {
         }),
       });
       this.context = ctx;
+      // The browser can go away under us: headful Chrome quits with its last window, so a
+      // client that closes the tab it opened takes the browser down behind it (headless
+      // survives having no pages, which is why this is invisible in the headless tests); a
+      // crash or an outside kill does the same. The handle cached above is then dead, and
+      // without this reset the manager keeps handing it to every caller — newPage throws
+      // "Target page, context or browser has been closed" until the process is restarted,
+      // while the HTTP surface still answers and so the server looks healthy. openVisible()
+      // has installed the same reset for a while; the normal launch path needs it too.
+      ctx.once("close", () => {
+        if (this.context === ctx) this.resetContextState();
+      });
       if (locale) {
         this._extraHeaders["Accept-Language"] = locale;
         await ctx.setExtraHTTPHeaders({ ...this._extraHeaders });
@@ -181,6 +200,34 @@ export class BrowserManager {
     } finally {
       this.contextLaunching = null;
     }
+  }
+
+  /**
+   * Open a page, reopening the browser if it died since the last call. The close event above
+   * clears the cached handle, but it can land after a request has already grabbed the context —
+   * so the closed-context error is treated as "relaunch and try once more" rather than failure.
+   * One retry only: a context that closes again immediately is a real fault, not a race.
+   */
+  private async newPage(): Promise<Page> {
+    const ctx = await this.ensureContext();
+    try {
+      return await ctx.newPage();
+    } catch (err) {
+      if (!isContextClosedError(err)) throw err;
+      if (this.context === ctx) this.resetContextState();
+      const fresh = await this.ensureContext();
+      return fresh.newPage();
+    }
+  }
+
+  /** Forget the browser and everything that pointed into it, so the next ensureContext()
+   *  launches a fresh one against the same persistent profile (the session on disk survives). */
+  private resetContextState(): void {
+    this.context = null;
+    this.tabs.clear();
+    this.pageToId.clear();
+    this.lastUsed.clear();
+    this.currentTabId = null;
   }
 
   private registerPage(page: Page, setActive = true): string {
@@ -430,8 +477,7 @@ export class BrowserManager {
   }
 
   async openTab(url: string): Promise<TabInfo> {
-    const ctx = await this.ensureContext();
-    const page = await ctx.newPage();
+    const page = await this.newPage();
     const id = this.pageToId.get(page) ?? this.registerPage(page);
     this.currentTabId = id;
     const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: config.navTimeoutMs });

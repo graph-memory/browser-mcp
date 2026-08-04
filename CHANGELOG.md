@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.1 — a dead browser no longer wedges the server
+
+### Fixed
+
+- **A dead browser is no longer permanent.** The manager cached the context
+  handle for the life of the process and never checked whether it was still
+  alive, so once Chromium went away every open failed with
+  `browserContext.newPage: Target page, context or browser has been closed`
+  until the server was restarted. The HTTP surface kept answering and
+  `browser_tabs_list` kept returning its (empty) map, so the server looked
+  healthy while being unable to open a single page.
+
+  Headful Chrome makes this easy to hit: it quits together with its last
+  window, so a client that closes the tab it opened takes the browser down
+  behind it. A crash or an outside kill has the same effect.
+
+  The normal launch path now installs the `close` listener that only
+  `openVisible()` had, clearing the cached context and its tab map so the next
+  call relaunches against the same persistent profile — the on-disk session is
+  untouched. `openTab` also retries once on a closed-context error, covering
+  the window where the event has not landed yet.
+
 ## 0.4.0 — Chromium launch-arg passthrough + timezone emulation
 
 Three additive launch knobs for fingerprint / anti-bot tuning, all off by

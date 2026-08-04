@@ -1,6 +1,6 @@
 {
   "name": "@graphmemory/browser-mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "MCP server that gives AI agents a full browser — open pages, read content, click, type, scroll, take screenshots, manage tabs, and emulate devices.",
   "type": "module",
   "bin": {
